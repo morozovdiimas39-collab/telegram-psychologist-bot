@@ -120,11 +120,26 @@ def get_gemini_response(user_message: str) -> str:
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
             
+            # Обработка разных форматов ответа Gemini
             if 'candidates' in result and len(result['candidates']) > 0:
-                text = result['candidates'][0]['content']['parts'][0]['text']
-                return text
-            else:
-                return "🌸 Извините, я не смог обработать ваш запрос. Попробуйте переформулировать."
+                candidate = result['candidates'][0]
+                
+                # Пробуем разные структуры ответа
+                if 'content' in candidate:
+                    content = candidate['content']
+                    if 'parts' in content and len(content['parts']) > 0:
+                        text = content['parts'][0].get('text', '')
+                        if text:
+                            return text
+                
+                if 'text' in candidate:
+                    return candidate['text']
+                
+                if 'output' in candidate:
+                    return candidate['output']
+            
+            # Если ничего не нашли, возвращаем весь ответ для отладки
+            return f"🌸 Получен ответ, но в неожиданном формате:\n{json.dumps(result, ensure_ascii=False, indent=2)[:500]}"
     
     except Exception as e:
         error_msg = str(e)
