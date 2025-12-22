@@ -1,0 +1,46 @@
+{
+  "tests": [
+    {
+      "name": "Health check - OPTIONS request",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "Webhook receives /start command",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "message": {
+          "chat": {
+            "id": 123456789
+          },
+          "text": "/start"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "ok": true
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Webhook receives /exercises command",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "message": {
+          "chat": {
+            "id": 123456789
+          },
+          "text": "/exercises"
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "ok": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
