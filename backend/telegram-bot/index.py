@@ -97,7 +97,7 @@ def get_gemini_response(user_message: str) -> str:
         'generationConfig': {
             'temperature': 0.7,
             'topP': 0.8,
-            'maxOutputTokens': 1024
+            'maxOutputTokens': 8192
         }
     }
     
@@ -120,26 +120,36 @@ def get_gemini_response(user_message: str) -> str:
         with urllib.request.urlopen(req, timeout=30) as response:
             result = json.loads(response.read().decode('utf-8'))
             
-            # Обработка разных форматов ответа Gemini
+            # Обработка ответа Gemini 3 Pro
             if 'candidates' in result and len(result['candidates']) > 0:
                 candidate = result['candidates'][0]
                 
-                # Пробуем разные структуры ответа
+                # Проверяем причину завершения
+                finish_reason = candidate.get('finishReason', '')
+                
+                # Пробуем извлечь текст из content
                 if 'content' in candidate:
                     content = candidate['content']
-                    if 'parts' in content and len(content['parts']) > 0:
-                        text = content['parts'][0].get('text', '')
-                        if text:
-                            return text
+                    if isinstance(content, dict) and 'parts' in content:
+                        parts = content['parts']
+                        if isinstance(parts, list) and len(parts) > 0:
+                            text = parts[0].get('text', '')
+                            if text:
+                                return text
                 
+                # Если content пустой из-за MAX_TOKENS, сообщаем об этом
+                if finish_reason == 'MAX_TOKENS':
+                    return "🌸 Извините, мой ответ получился слишком длинным. Попробуйте задать вопрос короче или конкретнее."
+                
+                # Другие варианты структуры
                 if 'text' in candidate:
                     return candidate['text']
                 
                 if 'output' in candidate:
                     return candidate['output']
             
-            # Если ничего не нашли, возвращаем весь ответ для отладки
-            return f"🌸 Получен ответ, но в неожиданном формате:\n{json.dumps(result, ensure_ascii=False, indent=2)[:500]}"
+            # Если ничего не нашли
+            return "🌸 Извините, не удалось получить ответ. Попробуйте переформулировать вопрос."
     
     except Exception as e:
         error_msg = str(e)
