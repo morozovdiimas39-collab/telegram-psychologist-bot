@@ -86,7 +86,7 @@ def get_gemini_response(user_message: str) -> str:
 
 Стиль: дружеский, поддерживающий, теплый."""
     
-    url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}'
+    url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key={api_key}'
     
     payload = {
         'contents': [{
