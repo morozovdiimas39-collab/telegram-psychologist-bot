@@ -106,7 +106,7 @@ def get_gemini_response(user_message: str) -> str:
         if proxy_url:
             proxy_handler = urllib.request.ProxyHandler({
                 'http': f'http://{proxy_url}',
-                'https': f'http://{proxy_url}'
+                'https': f'https://{proxy_url}'
             })
             opener = urllib.request.build_opener(proxy_handler)
             urllib.request.install_opener(opener)
@@ -127,7 +127,8 @@ def get_gemini_response(user_message: str) -> str:
                 return "🌸 Извините, я не смог обработать ваш запрос. Попробуйте переформулировать."
     
     except Exception as e:
-        return f"💙 Произошла ошибка при обращении к AI. Но я здесь и готов выслушать вас. Попробуйте еще раз через минуту.\n\nА пока — сделайте глубокий вдох и выдох 🌿"
+        error_msg = str(e)
+        return f"💙 Ошибка: {error_msg}\n\nНо я здесь и готов выслушать вас. Попробуйте команду /exercises для практик релаксации 🌿"
 
 
 def send_telegram_message(chat_id: int, text: str) -> None:
