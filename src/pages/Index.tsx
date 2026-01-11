@@ -4,23 +4,7 @@ import { Badge } from "@/components/ui/badge";
 import Icon from "@/components/ui/icon";
 
 const Index = () => {
-  const services = [
-    {
-      icon: "Target",
-      title: "Контекстная реклама",
-      description: "Настройка и ведение рекламных кампаний в Яндекс.Директ и Google Ads"
-    },
-    {
-      icon: "TrendingUp",
-      title: "Аналитика и отчеты",
-      description: "Детальный анализ эффективности кампаний и рекомендации по оптимизации"
-    },
-    {
-      icon: "Zap",
-      title: "Быстрый старт",
-      description: "Запуск первой рекламной кампании за 3 дня с гарантией результата"
-    }
-  ];
+
 
   const cases = [
     {
@@ -62,7 +46,7 @@ const Index = () => {
   return (
     <div className="min-h-screen bg-background">
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-primary/5 via-background to-accent/5">
+      <section className="relative overflow-hidden bg-gradient-to-br from-purple-600/20 via-pink-500/20 to-orange-500/20">
         <div className="container mx-auto px-4 py-20 md:py-32">
           <div className="max-w-3xl mx-auto text-center space-y-8">
             <Badge variant="secondary" className="text-sm px-4 py-2">
@@ -88,8 +72,9 @@ const Index = () => {
           </div>
         </div>
         <div className="absolute inset-0 -z-10 overflow-hidden">
-          <div className="absolute top-1/2 left-1/4 w-96 h-96 bg-primary/10 rounded-full blur-3xl" />
-          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-accent/10 rounded-full blur-3xl" />
+          <div className="absolute top-1/2 left-1/4 w-96 h-96 bg-purple-500/30 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-pink-500/30 rounded-full blur-3xl animate-pulse" />
+          <div className="absolute top-1/4 right-1/3 w-64 h-64 bg-orange-500/20 rounded-full blur-3xl" />
         </div>
       </section>
 
@@ -99,7 +84,7 @@ const Index = () => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {stats.map((stat, index) => (
               <div key={index} className="text-center space-y-2">
-                <div className="text-4xl md:text-5xl font-bold text-primary">
+                <div className="text-4xl md:text-5xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                   {stat.value}
                 </div>
                 <div className="text-sm text-muted-foreground">
@@ -111,30 +96,7 @@ const Index = () => {
         </div>
       </section>
 
-      {/* Services Section */}
-      <section className="py-20">
-        <div className="container mx-auto px-4">
-          <div className="text-center space-y-4 mb-16">
-            <h2 className="text-3xl md:text-4xl font-bold">Услуги</h2>
-            <p className="text-lg text-muted-foreground max-w-2xl mx-auto">
-              Полный цикл работы с контекстной рекламой от аудита до масштабирования
-            </p>
-          </div>
-          <div className="grid md:grid-cols-3 gap-8">
-            {services.map((service, index) => (
-              <Card key={index} className="border-2 hover:border-primary/50 transition-colors">
-                <CardContent className="pt-8 pb-6 space-y-4">
-                  <div className="w-14 h-14 rounded-xl bg-primary/10 flex items-center justify-center">
-                    <Icon name={service.icon} className="h-7 w-7 text-primary" />
-                  </div>
-                  <h3 className="text-xl font-semibold">{service.title}</h3>
-                  <p className="text-muted-foreground">{service.description}</p>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        </div>
-      </section>
+
 
       {/* Cases Section */}
       <section className="py-20 bg-muted/30">
@@ -147,8 +109,8 @@ const Index = () => {
           </div>
           <div className="grid md:grid-cols-3 gap-8">
             {cases.map((caseItem, index) => (
-              <Card key={index} className="overflow-hidden">
-                <div className="h-2 bg-gradient-to-r from-primary to-accent" />
+              <Card key={index} className="overflow-hidden hover:shadow-2xl hover:scale-105 transition-all duration-300">
+                <div className="h-2 bg-gradient-to-r from-purple-600 via-pink-500 to-orange-500" />
                 <CardContent className="pt-6 pb-8 space-y-6">
                   <div>
                     <Badge variant="secondary" className="mb-3">
@@ -162,7 +124,7 @@ const Index = () => {
                         <span className="text-sm text-muted-foreground">
                           {metric.label}
                         </span>
-                        <span className="text-lg font-bold text-primary">
+                        <span className="text-lg font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">
                           {metric.value}
                         </span>
                       </div>
@@ -178,7 +140,7 @@ const Index = () => {
       {/* CTA Section */}
       <section className="py-20">
         <div className="container mx-auto px-4">
-          <Card className="border-2 bg-gradient-to-br from-primary/5 to-accent/5">
+          <Card className="border-2 bg-gradient-to-br from-purple-600/10 via-pink-500/10 to-orange-500/10 shadow-xl">
             <CardContent className="py-16 px-8 text-center space-y-6">
               <h2 className="text-3xl md:text-4xl font-bold">
                 Готовы увеличить продажи?
