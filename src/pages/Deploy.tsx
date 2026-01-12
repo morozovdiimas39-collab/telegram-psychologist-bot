@@ -17,6 +17,7 @@ const Deploy = () => {
   const [vmIp, setVmIp] = useState("");
   const [vmWebhook, setVmWebhook] = useState("");
   const [showVmSecrets, setShowVmSecrets] = useState(false);
+  const [isUpdatingVM, setIsUpdatingVM] = useState(false);
   const { toast } = useToast();
 
   const handleCreateVM = async () => {
@@ -69,6 +70,39 @@ const Deploy = () => {
       });
     } finally {
       setIsCreatingVM(false);
+    }
+  };
+
+  const handleUpdateVM = async () => {
+    setIsUpdatingVM(true);
+    setDeployLog(["🔄 Обновляю скрипт деплоя на VM..."]);
+
+    try {
+      const response = await fetch("https://functions.poehali.dev/8bc9a2dc-aa30-4e12-90da-aafc88c6dc5e", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setDeployLog(prev => [...prev, ...data.logs]);
+        toast({
+          title: "✅ VM обновлена!",
+          description: "Скрипт деплоя с поддержкой БД и функций установлен"
+        });
+      } else {
+        throw new Error(data.error || "Ошибка обновления VM");
+      }
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsUpdatingVM(false);
     }
   };
 
@@ -127,24 +161,46 @@ const Deploy = () => {
           <p className="text-muted-foreground">
             Автоматический перенос проектов в Yandex Cloud
           </p>
-          <Button
-            onClick={handleCreateVM}
-            disabled={isCreatingVM}
-            size="lg"
-            variant="outline"
-          >
-            {isCreatingVM ? (
-              <>
-                <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                Создаю VM...
-              </>
-            ) : (
-              <>
-                <Icon name="Server" className="mr-2 h-4 w-4" />
-                Создать VM в Yandex Cloud
-              </>
+          <div className="flex gap-4 justify-center">
+            <Button
+              onClick={handleCreateVM}
+              disabled={isCreatingVM}
+              size="lg"
+              variant="outline"
+            >
+              {isCreatingVM ? (
+                <>
+                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                  Создаю VM...
+                </>
+              ) : (
+                <>
+                  <Icon name="Server" className="mr-2 h-4 w-4" />
+                  Создать VM в Yandex Cloud
+                </>
+              )}
+            </Button>
+            
+            {showVmSecrets && (
+              <Button
+                onClick={handleUpdateVM}
+                disabled={isUpdatingVM}
+                size="lg"
+              >
+                {isUpdatingVM ? (
+                  <>
+                    <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                    Обновляю VM...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="RefreshCw" className="mr-2 h-4 w-4" />
+                    Обновить скрипт деплоя
+                  </>
+                )}
+              </Button>
             )}
-          </Button>
+          </div>
         </div>
 
         {showVmSecrets && (

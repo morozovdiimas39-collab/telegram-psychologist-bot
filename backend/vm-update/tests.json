@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "OPTIONS request returns CORS headers",
+      "method": "OPTIONS",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": {},
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "POST without secrets returns 400",
+      "method": "POST",
+      "path": "/",
+      "expectedStatus": 400,
+      "bodyMatcher": "partial"
+    }
+  ]
+}
