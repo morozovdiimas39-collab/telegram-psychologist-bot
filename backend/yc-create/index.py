@@ -43,29 +43,57 @@ def handler(event: dict, context) -> dict:
         
         headers = {"Authorization": f"Bearer {iam_token}"}
         
-        logs.append("📁 Получаю folder ID...")
-        folders_resp = requests.get(
-            "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders",
+        logs.append("☁️ Получаю cloud ID...")
+        clouds_resp = requests.get(
+            "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds",
             headers=headers,
             timeout=10
         )
         
-        logs.append(f"📋 Ответ API: {folders_resp.status_code}")
-        resp_data = folders_resp.json()
-        logs.append(f"📋 Данные: {json.dumps(resp_data, ensure_ascii=False)[:500]}")
-        
-        if "folders" not in resp_data:
+        if clouds_resp.status_code != 200:
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({
-                    'error': f'API вернул не то что ожидалось. Ответ: {json.dumps(resp_data, ensure_ascii=False)[:1000]}',
-                    'logs': logs
-                }),
+                'body': json.dumps({'error': f'Clouds API error: {clouds_resp.text}', 'logs': logs}),
                 'isBase64Encoded': False
             }
         
-        folders = resp_data["folders"]
+        clouds = clouds_resp.json().get("clouds", [])
+        if not clouds:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'No clouds found in account', 'logs': logs}),
+                'isBase64Encoded': False
+            }
+        
+        cloud_id = clouds[0]["id"]
+        logs.append(f"✅ Cloud ID: {cloud_id}")
+        
+        logs.append("📁 Получаю folder ID...")
+        folders_resp = requests.get(
+            f"https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        if folders_resp.status_code != 200:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': f'Folders API error: {folders_resp.text}', 'logs': logs}),
+                'isBase64Encoded': False
+            }
+        
+        folders = folders_resp.json().get("folders", [])
+        if not folders:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'No folders found in cloud', 'logs': logs}),
+                'isBase64Encoded': False
+            }
+        
         folder_id = folders[0]["id"]
         logs.append(f"✅ Folder ID: {folder_id}")
         
