@@ -129,7 +129,9 @@ def handler(event: dict, context) -> dict:
         
         logs.append("⚠️ VM не найдена, создаю...")
         
-        logs.append("📡 Получаю subnet...")
+        zone = "ru-central1-a"
+        
+        logs.append(f"📡 Получаю subnet в зоне {zone}...")
         subnets_resp = requests.get(
             f"https://vpc.api.cloud.yandex.net/vpc/v1/subnets?folderId={folder_id}",
             headers=headers,
@@ -137,15 +139,20 @@ def handler(event: dict, context) -> dict:
         )
         subnets = subnets_resp.json().get("subnets", [])
         
-        if not subnets:
+        subnet_id = None
+        for subnet in subnets:
+            if subnet.get("zoneId") == zone:
+                subnet_id = subnet["id"]
+                break
+        
+        if not subnet_id:
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'No subnets found', 'logs': logs}),
+                'body': json.dumps({'error': f'No subnet found in zone {zone}', 'logs': logs}),
                 'isBase64Encoded': False
             }
         
-        subnet_id = subnets[0]["id"]
         logs.append(f"✅ Subnet: {subnet_id}")
         
         cloud_init = """#cloud-config
