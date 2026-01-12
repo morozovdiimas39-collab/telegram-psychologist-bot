@@ -255,6 +255,15 @@ const Deploy = () => {
               <Icon name="Plus" className="mr-2 h-4 w-4" />
               2. Создать VM с SSH
             </Button>
+
+            <Button
+              onClick={() => window.open('https://functions.poehali.dev/f3c33704-629c-4797-8313-284016acb44c', '_blank')}
+              size="lg"
+              variant="secondary"
+            >
+              <Icon name="Zap" className="mr-2 h-4 w-4" />
+              Запустить webhook
+            </Button>
           </div>
         </div>
 
