@@ -44,14 +44,23 @@ def handler(event: dict, context) -> dict:
         logs = []
         logs.append("🔐 Получаю IAM токен...")
         
-        iam_response = requests.post(
-            "https://iam.api.cloud.yandex.net/iam/v1/tokens",
-            json={"yandexPassportOauthToken": oauth_token},
-            timeout=10
-        )
-        iam_response.raise_for_status()
-        iam_token = iam_response.json()["iamToken"]
-        logs.append("✅ IAM токен получен")
+        try:
+            iam_response = requests.post(
+                "https://iam.api.cloud.yandex.net/iam/v1/tokens",
+                json={"yandexPassportOauthToken": oauth_token},
+                timeout=5
+            )
+            iam_response.raise_for_status()
+            iam_token = iam_response.json()["iamToken"]
+            logs.append("✅ IAM токен получен")
+        except Exception as e:
+            logs.append(f"❌ Ошибка IAM: {str(e)}")
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': f'IAM token error: {str(e)}', 'logs': logs}),
+                'isBase64Encoded': False
+            }
 
         logs.append("📁 Получаю folder ID...")
         headers = {"Authorization": f"Bearer {iam_token}"}
