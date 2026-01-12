@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 def handler(event: dict, context) -> dict:
-    """Деплой backend функций из GitHub в Yandex Cloud Functions"""
+    """Деплой backend функций из локального проекта в Yandex Cloud Functions"""
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -24,16 +24,7 @@ def handler(event: dict, context) -> dict:
 
     try:
         body = json.loads(event.get('body', '{}'))
-        github_url = body.get('github_url')
         secrets = body.get('secrets', [])
-        
-        if not github_url:
-            return {
-                'statusCode': 400,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'github_url required'}),
-                'isBase64Encoded': False
-            }
         
         oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
         logs = []
@@ -64,25 +55,11 @@ def handler(event: dict, context) -> dict:
         )
         folder_id = folders_resp.json()["folders"][0]["id"]
         
-        # Получаем список функций из GitHub
-        logs.append("📦 Читаю backend из GitHub...")
-        repo_parts = github_url.replace('https://github.com/', '').replace('.git', '').split('/')
-        owner, repo = repo_parts[0], repo_parts[1]
+        # Читаем функции из локальной папки backend
+        logs.append("📦 Читаю функции из проекта...")
+        backend_path = Path(__file__).parent.parent
         
-        gh_api_url = f"https://api.github.com/repos/{owner}/{repo}/contents/backend"
-        gh_resp = requests.get(gh_api_url, timeout=10)
-        
-        if gh_resp.status_code != 200:
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'Backend folder not found in repo', 'logs': logs}),
-                'isBase64Encoded': False
-            }
-        
-        backend_items = gh_resp.json()
-        function_dirs = [item['name'] for item in backend_items if item['type'] == 'dir']
-        
+        function_dirs = [d.name for d in backend_path.iterdir() if d.is_dir() and (d / 'index.py').exists()]
         logs.append(f"✅ Найдено функций: {len(function_dirs)}")
         
         deployed_functions = []
@@ -91,22 +68,23 @@ def handler(event: dict, context) -> dict:
         for func_name in function_dirs:
             logs.append(f"🚀 Деплою функцию: {func_name}")
             
-            # Получаем index.py
-            index_url = f"https://api.github.com/repos/{owner}/{repo}/contents/backend/{func_name}/index.py"
-            index_resp = requests.get(index_url, timeout=10)
+            func_path = backend_path / func_name
             
-            if index_resp.status_code != 200:
+            # Читаем index.py
+            index_file = func_path / 'index.py'
+            if not index_file.exists():
                 logs.append(f"⚠️ Пропускаю {func_name} - нет index.py")
                 continue
             
-            index_content = base64.b64decode(index_resp.json()['content']).decode('utf-8')
+            with open(index_file, 'r', encoding='utf-8') as f:
+                index_content = f.read()
             
-            # Получаем requirements.txt если есть
+            # Читаем requirements.txt если есть
             requirements = ""
-            req_url = f"https://api.github.com/repos/{owner}/{repo}/contents/backend/{func_name}/requirements.txt"
-            req_resp = requests.get(req_url, timeout=10)
-            if req_resp.status_code == 200:
-                requirements = base64.b64decode(req_resp.json()['content']).decode('utf-8')
+            req_file = func_path / 'requirements.txt'
+            if req_file.exists():
+                with open(req_file, 'r', encoding='utf-8') as f:
+                    requirements = f.read()
             
             # Создаём zip с функцией
             import zipfile
@@ -124,7 +102,7 @@ def handler(event: dict, context) -> dict:
             function_payload = {
                 "folderId": folder_id,
                 "name": func_name,
-                "description": f"Function {func_name} from {github_url}"
+                "description": f"Function {func_name} from poehali.dev"
             }
             
             create_func_resp = requests.post(
