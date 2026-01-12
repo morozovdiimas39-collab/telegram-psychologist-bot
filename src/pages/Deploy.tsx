@@ -181,25 +181,23 @@ const Deploy = () => {
               )}
             </Button>
             
-            {showVmSecrets && (
-              <Button
-                onClick={handleUpdateVM}
-                disabled={isUpdatingVM}
-                size="lg"
-              >
-                {isUpdatingVM ? (
-                  <>
-                    <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                    Обновляю VM...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="RefreshCw" className="mr-2 h-4 w-4" />
-                    Обновить скрипт деплоя
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              onClick={handleUpdateVM}
+              disabled={isUpdatingVM}
+              size="lg"
+            >
+              {isUpdatingVM ? (
+                <>
+                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                  Обновляю VM...
+                </>
+              ) : (
+                <>
+                  <Icon name="RefreshCw" className="mr-2 h-4 w-4" />
+                  Обновить скрипт деплоя
+                </>
+              )}
+            </Button>
           </div>
         </div>
 
