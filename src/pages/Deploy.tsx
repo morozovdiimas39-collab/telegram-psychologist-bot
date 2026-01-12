@@ -238,12 +238,21 @@ const Deploy = () => {
             </Button>
 
             <Button
-              onClick={() => window.open('https://functions.poehali.dev/6936359a-cd04-4497-9dfd-4b2bfb27b77e', '_blank')}
+              onClick={() => window.open('https://functions.poehali.dev/a337e260-916c-4d7b-a103-b487dc06efe8', '_blank')}
               size="lg"
               variant="destructive"
             >
               <Icon name="Trash2" className="mr-2 h-4 w-4" />
-              Пересоздать VM с SSH
+              1. Удалить VM
+            </Button>
+
+            <Button
+              onClick={() => window.open('https://functions.poehali.dev/2ad40487-21a0-4145-b7ac-6bc414b3b82b', '_blank')}
+              size="lg"
+              variant="default"
+            >
+              <Icon name="Plus" className="mr-2 h-4 w-4" />
+              2. Создать VM с SSH
             </Button>
           </div>
         </div>
