@@ -15,6 +15,9 @@ const Deploy = () => {
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
+  const [vmIp, setVmIp] = useState("");
+  const [vmWebhook, setVmWebhook] = useState("");
+  const [showVmSecrets, setShowVmSecrets] = useState(false);
   const { toast } = useToast();
 
   const handleCreateVM = async () => {
@@ -33,16 +36,16 @@ const Deploy = () => {
         setDeployLog(prev => [...prev, ...data.logs]);
         
         if (data.ip && data.webhook) {
+          setVmIp(data.ip);
+          setVmWebhook(data.webhook);
+          setShowVmSecrets(true);
+          
           setDeployLog(prev => [
             ...prev,
             "",
             "✅ VM готова!",
             `📋 IP адрес: ${data.ip}`,
-            `📋 Webhook: ${data.webhook}`,
-            "",
-            "💡 Добавь секреты:",
-            `VM_IP_ADDRESS = ${data.ip}`,
-            `VM_WEBHOOK_URL = ${data.webhook}`
+            `📋 Webhook: ${data.webhook}`
           ]);
           
           toast({
@@ -145,6 +148,37 @@ const Deploy = () => {
             )}
           </Button>
         </div>
+
+        {showVmSecrets && (
+          <Card className="border-primary">
+            <CardHeader>
+              <CardTitle>Секреты VM</CardTitle>
+              <CardDescription>
+                Скопируйте эти значения — они понадобятся для деплоя
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="vm-ip">VM_IP_ADDRESS</Label>
+                <Input
+                  id="vm-ip"
+                  value={vmIp}
+                  readOnly
+                  className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vm-webhook">VM_WEBHOOK_URL</Label>
+                <Input
+                  id="vm-webhook"
+                  value={vmWebhook}
+                  readOnly
+                  className="font-mono"
+                />
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         <Card>
           <CardHeader>
