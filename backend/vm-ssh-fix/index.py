@@ -79,6 +79,19 @@ def handler(event: dict, context) -> dict:
         
         logs.append("✅ SSH подключение установлено")
         
+        # Проверяем статус webhook сервиса
+        logs.append("📊 Проверяю статус webhook...")
+        stdin, stdout, stderr = ssh.exec_command('sudo systemctl status deploy-webhook')
+        status_output = stdout.read().decode('utf-8')
+        logs.append(status_output[:500])
+        
+        # Проверяем логи
+        logs.append("")
+        logs.append("📋 Логи webhook:")
+        stdin, stdout, stderr = ssh.exec_command('sudo journalctl -u deploy-webhook -n 20 --no-pager')
+        journal_output = stdout.read().decode('utf-8')
+        logs.append(journal_output[:1000])
+        
         # Читаем скрипт деплоя
         script_path = os.path.join(os.path.dirname(__file__), 'deploy_script.py')
         with open(script_path, 'r') as f:
