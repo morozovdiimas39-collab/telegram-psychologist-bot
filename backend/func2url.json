@@ -1,4 +1,5 @@
 {
+  "vm-restart": "https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246",
   "vm-status": "https://functions.poehali.dev/52534310-4152-41bc-95a0-6000aec5b6ff",
   "vm-update": "https://functions.poehali.dev/8bc9a2dc-aa30-4e12-90da-aafc88c6dc5e",
   "yc-create": "https://functions.poehali.dev/473a90f3-4df5-49e2-8d37-930288a2b3eb",

@@ -202,6 +202,15 @@ const Deploy = () => {
                 </>
               )}
             </Button>
+
+            <Button
+              onClick={() => window.open('https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246', '_blank')}
+              size="lg"
+              variant="secondary"
+            >
+              <Icon name="RotateCw" className="mr-2 h-4 w-4" />
+              Перезапустить VM
+            </Button>
           </div>
         </div>
 
