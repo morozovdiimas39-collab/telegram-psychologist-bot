@@ -16,6 +16,7 @@ const Deploy = () => {
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [vmIp, setVmIp] = useState("");
   const [vmWebhook, setVmWebhook] = useState("");
+  const [vmSshKey, setVmSshKey] = useState("");
   const [showVmSecrets, setShowVmSecrets] = useState(false);
   const [isUpdatingVM, setIsUpdatingVM] = useState(false);
   const [isRestartingVM, setIsRestartingVM] = useState(false);
@@ -282,6 +283,16 @@ const Deploy = () => {
                   value={vmWebhook}
                   readOnly
                   className="font-mono"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="vm-ssh-key">VM_SSH_KEY</Label>
+                <textarea
+                  id="vm-ssh-key"
+                  value={vmSshKey}
+                  onChange={(e) => setVmSshKey(e.target.value)}
+                  placeholder="Вставь SSH ключ сюда после создания VM"
+                  className="w-full h-32 px-3 py-2 text-sm border rounded-md font-mono"
                 />
               </div>
             </CardContent>
