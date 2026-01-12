@@ -49,7 +49,23 @@ def handler(event: dict, context) -> dict:
             headers=headers,
             timeout=10
         )
-        folders = folders_resp.json()["folders"]
+        
+        logs.append(f"📋 Ответ API: {folders_resp.status_code}")
+        resp_data = folders_resp.json()
+        logs.append(f"📋 Данные: {json.dumps(resp_data, ensure_ascii=False)[:500]}")
+        
+        if "folders" not in resp_data:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'error': f'API вернул не то что ожидалось. Ответ: {json.dumps(resp_data, ensure_ascii=False)[:1000]}',
+                    'logs': logs
+                }),
+                'isBase64Encoded': False
+            }
+        
+        folders = resp_data["folders"]
         folder_id = folders[0]["id"]
         logs.append(f"✅ Folder ID: {folder_id}")
         
