@@ -145,6 +145,52 @@ const Deploy = () => {
     }
   };
 
+  const handleDeployFunctions = async () => {
+    if (!githubUrl) {
+      toast({
+        title: "Ошибка",
+        description: "Укажи GitHub URL",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsDeploying(true);
+    setDeployLog(["🚀 Деплою облачные функции в Yandex Cloud..."]);
+
+    try {
+      const response = await fetch("https://functions.poehali.dev/bdf0df74-2961-4e8c-88bb-756cfc7c4bc1", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          github_url: githubUrl,
+          secrets: []
+        })
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setDeployLog(prev => [...prev, ...data.logs]);
+        toast({
+          title: "✅ Функции задеплоены!",
+          description: `Задеплоено: ${data.deployed?.length || 0} функций`
+        });
+      } else {
+        throw new Error(data.error || "Ошибка деплоя функций");
+      }
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка деплоя",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
   const handleDeploy = async () => {
     if (!githubUrl || !projectName || !domain) {
       toast({
@@ -327,6 +373,16 @@ const Deploy = () => {
                 onChange={(e) => setGithubUrl(e.target.value)}
                 disabled={isDeploying}
               />
+              <Button
+                onClick={handleDeployFunctions}
+                disabled={isDeploying || !githubUrl}
+                size="sm"
+                variant="outline"
+                className="mt-2"
+              >
+                <Icon name="Zap" className="mr-2 h-4 w-4" />
+                Задеплоить функции в Yandex Cloud
+              </Button>
             </div>
 
             <div className="space-y-2">
