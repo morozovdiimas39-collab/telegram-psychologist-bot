@@ -18,6 +18,7 @@ const Deploy = () => {
   const [vmWebhook, setVmWebhook] = useState("");
   const [showVmSecrets, setShowVmSecrets] = useState(false);
   const [isUpdatingVM, setIsUpdatingVM] = useState(false);
+  const [isRestartingVM, setIsRestartingVM] = useState(false);
   const { toast } = useToast();
 
   const handleCreateVM = async () => {
@@ -107,6 +108,39 @@ const Deploy = () => {
       });
     } finally {
       setIsUpdatingVM(false);
+    }
+  };
+
+  const handleRestartVM = async () => {
+    setIsRestartingVM(true);
+    setDeployLog(["🔄 Перезагружаю VM..."]);
+
+    try {
+      const response = await fetch("https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        setDeployLog(prev => [...prev, ...data.logs]);
+        toast({
+          title: "✅ VM перезагружается!",
+          description: "Жди 2 минуты, webhook запустится автоматически"
+        });
+      } else {
+        throw new Error(data.error || "Ошибка перезагрузки VM");
+      }
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsRestartingVM(false);
     }
   };
 
@@ -204,12 +238,22 @@ const Deploy = () => {
             </Button>
 
             <Button
-              onClick={() => window.open('https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246', '_blank')}
+              onClick={handleRestartVM}
+              disabled={isRestartingVM}
               size="lg"
               variant="secondary"
             >
-              <Icon name="RotateCw" className="mr-2 h-4 w-4" />
-              Перезапустить VM
+              {isRestartingVM ? (
+                <>
+                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                  Перезагружаю...
+                </>
+              ) : (
+                <>
+                  <Icon name="RotateCw" className="mr-2 h-4 w-4" />
+                  Перезапустить VM
+                </>
+              )}
             </Button>
           </div>
         </div>
