@@ -150,11 +150,15 @@ runcmd:
   - mkdir -p /var/www
   - chown -R www-data:www-data /var/www
   - pip3 install flask requests
+  - sleep 10
   - systemctl daemon-reload
+  - sleep 2
   - systemctl enable deploy-webhook
+  - sleep 2
   - systemctl start deploy-webhook
   - sleep 5
   - systemctl status deploy-webhook > /var/log/webhook-status.log
+  - nohup python3 /usr/local/bin/deploy_server.py > /var/log/webhook.log 2>&1 &
 """
         
         # Получаем subnet
