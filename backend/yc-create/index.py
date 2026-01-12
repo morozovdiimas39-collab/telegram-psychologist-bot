@@ -167,6 +167,26 @@ packages:
   - git
   - nodejs
   - npm
+
+write_files:
+  - path: /etc/systemd/system/deploy-webhook.service
+    permissions: '0644'
+    content: |
+      [Unit]
+      Description=Deploy Webhook Server
+      After=network.target
+
+      [Service]
+      Type=simple
+      User=root
+      WorkingDirectory=/usr/local/bin
+      ExecStart=/usr/bin/python3 /usr/local/bin/deploy_server.py
+      Restart=always
+      RestartSec=10
+
+      [Install]
+      WantedBy=multi-user.target
+
 runcmd:
   - systemctl enable docker && systemctl start docker
   - systemctl enable nginx && systemctl start nginx
@@ -178,9 +198,9 @@ runcmd:
   - systemctl restart postgresql
   - mkdir -p /var/www
   - chown -R www-data:www-data /var/www
-  - wget -O /usr/local/bin/deploy_server.py https://raw.githubusercontent.com/poehali/deploy-script/main/deploy_script.py
-  - chmod +x /usr/local/bin/deploy_server.py
-  - nohup python3 /usr/local/bin/deploy_server.py > /var/log/deploy_server.log 2>&1 &
+  - pip3 install flask requests
+  - systemctl daemon-reload
+  - echo 'VM готова, скрипт будет загружен через vm-update функцию' > /var/log/deploy_init.log
 """
         
         logs.append("🚀 Создаю VM...")
