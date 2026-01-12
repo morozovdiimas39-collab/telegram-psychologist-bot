@@ -388,11 +388,24 @@ const Deploy = () => {
             <CardHeader>
               <CardTitle>Лог деплоя</CardTitle>
             </CardHeader>
-            <CardContent>
+            <CardContent className="space-y-4">
               <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1 max-h-96 overflow-y-auto">
                 {deployLog.map((log, idx) => (
                   <div key={idx}>{log}</div>
                 ))}
+              </div>
+              
+              <div className="space-y-2">
+                <Label htmlFor="vm-ssh-key">VM_SSH_KEY (вставь сюда ключ из логов выше)</Label>
+                <textarea
+                  id="vm-ssh-key"
+                  value={vmSshKey}
+                  onChange={(e) => setVmSshKey(e.target.value)}
+                  placeholder="-----BEGIN RSA PRIVATE KEY-----
+...вставь SSH ключ из логов выше...
+-----END RSA PRIVATE KEY-----"
+                  className="w-full h-32 px-3 py-2 text-sm border rounded-md font-mono bg-background"
+                />
               </div>
             </CardContent>
           </Card>
