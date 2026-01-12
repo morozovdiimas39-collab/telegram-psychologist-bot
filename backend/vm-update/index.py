@@ -1,11 +1,11 @@
 import json
 import os
-import paramiko
-from io import StringIO
+import requests
+import base64
 
 
 def handler(event: dict, context) -> dict:
-    """Обновить скрипт деплоя на VM через SSH"""
+    """Обновить скрипт деплоя на VM через Yandex Cloud API"""
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -29,65 +29,151 @@ def handler(event: dict, context) -> dict:
         }
 
     try:
-        vm_ip = os.environ.get('VM_IP_ADDRESS')
-        ssh_key = os.environ.get('VM_SSH_KEY')
+        oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
         
-        if not vm_ip or not ssh_key:
+        logs = []
+        logs.append("🔐 Получаю IAM токен...")
+        
+        # Получаем IAM токен
+        iam_resp = requests.post(
+            "https://iam.api.cloud.yandex.net/iam/v1/tokens",
+            json={"yandexPassportOauthToken": oauth_token},
+            timeout=10
+        )
+        
+        if iam_resp.status_code != 200:
             return {
-                'statusCode': 400,
+                'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'VM_IP_ADDRESS or VM_SSH_KEY not configured'}),
+                'body': json.dumps({'error': f'IAM error: {iam_resp.text}', 'logs': logs}),
                 'isBase64Encoded': False
             }
         
-        logs = []
-        logs.append(f"📡 Подключаюсь к VM {vm_ip}...")
+        iam_token = iam_resp.json()["iamToken"]
+        logs.append("✅ IAM токен получен")
         
-        # Подключение по SSH
-        ssh = paramiko.SSHClient()
-        ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        headers = {"Authorization": f"Bearer {iam_token}"}
         
-        pkey = paramiko.RSAKey.from_private_key(StringIO(ssh_key))
-        ssh.connect(vm_ip, username='ubuntu', pkey=pkey, timeout=10)
+        # Получаем cloud и folder ID
+        logs.append("☁️ Получаю cloud ID...")
+        clouds_resp = requests.get(
+            "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds",
+            headers=headers,
+            timeout=10
+        )
         
-        logs.append("✅ SSH подключение установлено")
+        clouds = clouds_resp.json().get("clouds", [])
+        if not clouds:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'No clouds found', 'logs': logs}),
+                'isBase64Encoded': False
+            }
         
-        # Читаем скрипт деплоя из текущей директории
+        cloud_id = clouds[0]["id"]
+        
+        logs.append("📁 Получаю folder ID...")
+        folders_resp = requests.get(
+            f"https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        folders = folders_resp.json().get("folders", [])
+        if not folders:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'No folders found', 'logs': logs}),
+                'isBase64Encoded': False
+            }
+        
+        folder_id = folders[0]["id"]
+        
+        # Находим VM
+        logs.append("🔍 Ищу VM deploy-server...")
+        instances_resp = requests.get(
+            f"https://compute.api.cloud.yandex.net/compute/v1/instances?folderId={folder_id}",
+            headers=headers,
+            timeout=10
+        )
+        
+        instances = instances_resp.json().get("instances", [])
+        vm_id = None
+        for vm in instances:
+            if vm.get("name") == "deploy-server":
+                vm_id = vm["id"]
+                break
+        
+        if not vm_id:
+            return {
+                'statusCode': 404,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'VM deploy-server not found', 'logs': logs}),
+                'isBase64Encoded': False
+            }
+        
+        logs.append(f"✅ VM найдена: {vm_id}")
+        
+        # Читаем скрипт деплоя
         script_path = os.path.join(os.path.dirname(__file__), 'deploy_script.py')
         with open(script_path, 'r') as f:
             deploy_script = f.read()
         
-        logs.append("📦 Загружаю новый скрипт деплоя...")
+        # Обновляем метаданные VM с новым user-data
+        logs.append("📦 Обновляю метаданные VM...")
         
-        # Загружаем скрипт на VM
-        sftp = ssh.open_sftp()
-        remote_file = sftp.open('/tmp/deploy_server.py', 'w')
-        remote_file.write(deploy_script)
-        remote_file.close()
-        sftp.close()
+        user_data = f"""#cloud-config
+write_files:
+  - path: /usr/local/bin/deploy_server.py
+    permissions: '0755'
+    content: |
+{chr(10).join('      ' + line for line in deploy_script.split(chr(10)))}
+
+runcmd:
+  - pkill -f deploy_server.py || true
+  - nohup python3 /usr/local/bin/deploy_server.py > /var/log/deploy_server.log 2>&1 &
+"""
         
-        logs.append("✅ Скрипт загружен")
+        update_payload = {
+            "updateMask": "metadata",
+            "metadata": {
+                "user-data": user_data
+            }
+        }
         
-        # Устанавливаем скрипт
-        commands = [
-            'sudo mv /tmp/deploy_server.py /usr/local/bin/deploy_server.py',
-            'sudo chmod +x /usr/local/bin/deploy_server.py',
-            'sudo pkill -f deploy_server.py || true',
-            'nohup sudo python3 /usr/local/bin/deploy_server.py > /var/log/deploy_server.log 2>&1 &'
-        ]
+        update_resp = requests.patch(
+            f"https://compute.api.cloud.yandex.net/compute/v1/instances/{vm_id}",
+            headers={**headers, "Content-Type": "application/json"},
+            json=update_payload,
+            timeout=30
+        )
         
-        for cmd in commands:
-            stdin, stdout, stderr = ssh.exec_command(cmd)
-            exit_status = stdout.channel.recv_exit_status()
-            if exit_status != 0:
-                error = stderr.read().decode()
-                logs.append(f"⚠️ Команда: {cmd}")
-                logs.append(f"⚠️ Ошибка: {error}")
+        if update_resp.status_code not in [200, 202]:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': f'Update failed: {update_resp.text}', 'logs': logs}),
+                'isBase64Encoded': False
+            }
         
-        logs.append("✅ Скрипт деплоя обновлён и запущен")
-        logs.append("🎉 VM готова к деплою с поддержкой БД и функций")
+        logs.append("✅ Метаданные обновлены")
+        logs.append("🔄 Перезагружаю VM для применения изменений...")
         
-        ssh.close()
+        # Перезагружаем VM
+        restart_resp = requests.post(
+            f"https://compute.api.cloud.yandex.net/compute/v1/instances/{vm_id}:restart",
+            headers=headers,
+            timeout=10
+        )
+        
+        if restart_resp.status_code == 200:
+            logs.append("✅ VM перезагружается (займёт 1-2 минуты)")
+        else:
+            logs.append("⚠️ Не удалось перезагрузить автоматически, перезагрузи вручную через консоль YC")
+        
+        logs.append("🎉 Скрипт деплоя обновлён! После перезагрузки VM будет готова")
         
         return {
             'statusCode': 200,
