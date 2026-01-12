@@ -105,28 +105,54 @@ def handler(event: dict, context) -> dict:
                 "description": f"Function {func_name} from poehali.dev"
             }
             
-            create_func_resp = requests.post(
-                "https://serverless-functions.api.cloud.yandex.net/functions/v1/functions",
-                headers={**headers, "Content-Type": "application/json"},
-                json=function_payload,
-                timeout=30
+            # Сначала проверяем, существует ли функция
+            list_resp = requests.get(
+                f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
+                headers=headers,
+                timeout=10
             )
+            functions = list_resp.json().get('functions', [])
+            function_id = None
+            for f in functions:
+                if f['name'] == func_name:
+                    function_id = f['id']
+                    logs.append(f"  ✓ Функция {func_name} уже существует")
+                    break
             
-            if create_func_resp.status_code == 409:
-                # Функция уже существует, получаем её ID
-                list_resp = requests.get(
-                    f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
-                    headers=headers,
-                    timeout=10
+            # Если не существует - создаём
+            if not function_id:
+                create_func_resp = requests.post(
+                    "https://serverless-functions.api.cloud.yandex.net/functions/v1/functions",
+                    headers={**headers, "Content-Type": "application/json"},
+                    json=function_payload,
+                    timeout=30
                 )
-                functions = list_resp.json().get('functions', [])
-                function_id = None
-                for f in functions:
-                    if f['name'] == func_name:
-                        function_id = f['id']
-                        break
-            else:
-                function_id = create_func_resp.json()['metadata']['functionId']
+                
+                if create_func_resp.status_code in [200, 201]:
+                    resp_data = create_func_resp.json()
+                    # Yandex Cloud возвращает operation, ждём её завершения
+                    operation_id = resp_data.get('id')
+                    if operation_id:
+                        time.sleep(2)
+                        # Получаем список функций снова
+                        list_resp = requests.get(
+                            f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
+                            headers=headers,
+                            timeout=10
+                        )
+                        functions = list_resp.json().get('functions', [])
+                        for f in functions:
+                            if f['name'] == func_name:
+                                function_id = f['id']
+                                break
+                    logs.append(f"  ✓ Создана новая функция")
+                else:
+                    logs.append(f"❌ Ошибка создания {func_name}: {create_func_resp.text[:200]}")
+                    continue
+            
+            if not function_id:
+                logs.append(f"❌ Не удалось получить ID функции {func_name}")
+                continue
             
             # Создаём версию функции
             version_payload = {
