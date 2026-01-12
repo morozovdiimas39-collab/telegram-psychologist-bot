@@ -238,12 +238,12 @@ const Deploy = () => {
             </Button>
 
             <Button
-              onClick={() => window.open('https://functions.poehali.dev/2a608d69-65e7-4e36-b0fa-effe9649f661', '_blank')}
+              onClick={() => window.open('https://functions.poehali.dev/6936359a-cd04-4497-9dfd-4b2bfb27b77e', '_blank')}
               size="lg"
-              variant="default"
+              variant="destructive"
             >
-              <Icon name="Wrench" className="mr-2 h-4 w-4" />
-              Запустить systemd сервис
+              <Icon name="Trash2" className="mr-2 h-4 w-4" />
+              Пересоздать VM с SSH
             </Button>
           </div>
         </div>

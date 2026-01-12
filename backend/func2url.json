@@ -1,4 +1,6 @@
 {
+  "vm-recreate": "https://functions.poehali.dev/6936359a-cd04-4497-9dfd-4b2bfb27b77e",
+  "vm-ssh-fix": "https://functions.poehali.dev/f3c33704-629c-4797-8313-284016acb44c",
   "vm-fix": "https://functions.poehali.dev/2a608d69-65e7-4e36-b0fa-effe9649f661",
   "vm-restart": "https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246",
   "vm-status": "https://functions.poehali.dev/52534310-4152-41bc-95a0-6000aec5b6ff",
