@@ -45,12 +45,16 @@ const Deploy = () => {
             "",
             "✅ VM готова!",
             `📋 IP адрес: ${data.ip}`,
-            `📋 Webhook: ${data.webhook}`
+            `📋 Webhook: ${data.webhook}`,
+            "",
+            "💡 Добавь секреты в проект:",
+            `VM_IP_ADDRESS = ${data.ip}`,
+            `VM_WEBHOOK_URL = ${data.webhook}`
           ]);
           
           toast({
             title: "✅ VM создана!",
-            description: `IP: ${data.ip}`
+            description: "Добавь секреты VM_IP_ADDRESS и VM_WEBHOOK_URL"
           });
         } else {
           toast({

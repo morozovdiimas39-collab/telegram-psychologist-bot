@@ -115,14 +115,20 @@ def handler(event: dict, context) -> dict:
                     if vm_ip:
                         break
                 
+                webhook_url = f"http://{vm_ip}:9000/deploy"
+                
                 return {
                     'statusCode': 200,
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
                     'body': json.dumps({
                         'success': True,
                         'ip': vm_ip,
-                        'webhook': f"http://{vm_ip}:9000/deploy",
-                        'logs': logs
+                        'webhook': webhook_url,
+                        'logs': logs,
+                        'secrets_to_add': [
+                            {'name': 'VM_IP_ADDRESS', 'value': vm_ip},
+                            {'name': 'VM_WEBHOOK_URL', 'value': webhook_url}
+                        ]
                     }),
                     'isBase64Encoded': False
                 }
