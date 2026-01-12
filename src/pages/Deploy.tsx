@@ -238,22 +238,12 @@ const Deploy = () => {
             </Button>
 
             <Button
-              onClick={handleRestartVM}
-              disabled={isRestartingVM}
+              onClick={() => window.open('https://functions.poehali.dev/2a608d69-65e7-4e36-b0fa-effe9649f661', '_blank')}
               size="lg"
-              variant="secondary"
+              variant="default"
             >
-              {isRestartingVM ? (
-                <>
-                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                  Перезагружаю...
-                </>
-              ) : (
-                <>
-                  <Icon name="RotateCw" className="mr-2 h-4 w-4" />
-                  Перезапустить VM
-                </>
-              )}
+              <Icon name="Wrench" className="mr-2 h-4 w-4" />
+              Запустить systemd сервис
             </Button>
           </div>
         </div>
