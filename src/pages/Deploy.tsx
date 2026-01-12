@@ -14,7 +14,61 @@ const Deploy = () => {
   const [secrets, setSecrets] = useState("");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
+  const [isCreatingVM, setIsCreatingVM] = useState(false);
   const { toast } = useToast();
+
+  const handleCreateVM = async () => {
+    setIsCreatingVM(true);
+    setDeployLog(["🚀 Создаю VM в Yandex Cloud..."]);
+
+    try {
+      const response = await fetch("https://functions.poehali.dev/473a90f3-4df5-49e2-8d37-930288a2b3eb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" }
+      });
+
+      const data = await response.json();
+
+      if (response.ok || response.status === 202) {
+        setDeployLog(prev => [...prev, ...data.logs]);
+        
+        if (data.ip && data.webhook) {
+          setDeployLog(prev => [
+            ...prev,
+            "",
+            "✅ VM готова!",
+            `📋 IP адрес: ${data.ip}`,
+            `📋 Webhook: ${data.webhook}`,
+            "",
+            "💡 Добавь секреты:",
+            `VM_IP_ADDRESS = ${data.ip}`,
+            `VM_WEBHOOK_URL = ${data.webhook}`
+          ]);
+          
+          toast({
+            title: "✅ VM создана!",
+            description: `IP: ${data.ip}`
+          });
+        } else {
+          toast({
+            title: "⏳ VM создаётся",
+            description: "Повтори запрос через минуту"
+          });
+        }
+      } else {
+        throw new Error(data.error || "Ошибка создания VM");
+      }
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsCreatingVM(false);
+    }
+  };
 
   const handleDeploy = async () => {
     if (!githubUrl || !projectName || !domain) {
@@ -67,11 +121,29 @@ const Deploy = () => {
   return (
     <div className="min-h-screen bg-background p-4">
       <div className="container mx-auto max-w-4xl py-8 space-y-8">
-        <div className="text-center space-y-2">
+        <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold">Деплой проектов из poehali.dev</h1>
           <p className="text-muted-foreground">
             Автоматический перенос проектов в Yandex Cloud
           </p>
+          <Button
+            onClick={handleCreateVM}
+            disabled={isCreatingVM}
+            size="lg"
+            variant="outline"
+          >
+            {isCreatingVM ? (
+              <>
+                <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                Создаю VM...
+              </>
+            ) : (
+              <>
+                <Icon name="Server" className="mr-2 h-4 w-4" />
+                Создать VM в Yandex Cloud
+              </>
+            )}
+          </Button>
         </div>
 
         <Card>
