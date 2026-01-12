@@ -36,7 +36,12 @@ def handler(event: dict, context) -> dict:
         github_url = body.get('githubUrl', '').strip()
         project_name = body.get('projectName', '').strip()
         domain = body.get('domain', '').strip()
-        secrets_list = body.get('secrets', [])
+        
+        # Получаем секреты из окружения
+        secrets_list = []
+        for key in os.environ:
+            if key not in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'DATABASE_URL', 'VM_WEBHOOK_URL', 'VM_IP_ADDRESS', 'YANDEX_CLOUD_TOKEN']:
+                secrets_list.append({'name': key, 'value': os.environ[key]})
 
         if not github_url or not project_name or not domain:
             return {

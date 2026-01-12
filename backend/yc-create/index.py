@@ -161,12 +161,26 @@ packages:
   - docker.io
   - nginx
   - postgresql
+  - postgresql-contrib
   - python3-pip
+  - python3-flask
   - git
+  - nodejs
+  - npm
 runcmd:
   - systemctl enable docker && systemctl start docker
   - systemctl enable nginx && systemctl start nginx
+  - systemctl enable postgresql && systemctl start postgresql
   - sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
+  - sudo -u postgres psql -c "ALTER USER postgres WITH SUPERUSER;"
+  - echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/*/main/pg_hba.conf
+  - echo "listen_addresses = '*'" >> /etc/postgresql/*/main/postgresql.conf
+  - systemctl restart postgresql
+  - mkdir -p /var/www
+  - chown -R www-data:www-data /var/www
+  - wget -O /usr/local/bin/deploy_server.py https://raw.githubusercontent.com/poehali/deploy-script/main/deploy_script.py
+  - chmod +x /usr/local/bin/deploy_server.py
+  - nohup python3 /usr/local/bin/deploy_server.py > /var/log/deploy_server.log 2>&1 &
 """
         
         logs.append("🚀 Создаю VM...")

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 
@@ -11,7 +11,6 @@ const Deploy = () => {
   const [githubUrl, setGithubUrl] = useState("");
   const [projectName, setProjectName] = useState("");
   const [domain, setDomain] = useState("");
-  const [secrets, setSecrets] = useState("");
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
@@ -93,8 +92,7 @@ const Deploy = () => {
         body: JSON.stringify({
           githubUrl,
           projectName,
-          domain,
-          secrets: secrets.split("\n").filter(s => s.trim())
+          domain
         })
       });
 
@@ -234,20 +232,13 @@ const Deploy = () => {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="secrets">
-                Секреты (опционально)
-              </Label>
-              <Textarea
-                id="secrets"
-                placeholder="OPENAI_API_KEY=sk-xxx&#10;STRIPE_KEY=sk_test_xxx&#10;DATABASE_URL=postgresql://..."
-                value={secrets}
-                onChange={(e) => setSecrets(e.target.value)}
-                rows={6}
-                disabled={isDeploying}
-              />
-              <p className="text-xs text-muted-foreground">
-                Формат: KEY=VALUE (каждый секрет с новой строки)
-              </p>
+              <div className="rounded-lg border p-4 bg-muted/50">
+                <p className="text-sm font-medium mb-2">🔐 Секреты проекта</p>
+                <p className="text-xs text-muted-foreground">
+                  Все секреты из poehali.dev автоматически перенесутся на VM.
+                  Облачные функции и база данных будут работать так же, как в poehali.dev.
+                </p>
+              </div>
             </div>
 
             <Button
