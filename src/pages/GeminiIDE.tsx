@@ -49,8 +49,8 @@ export default function GeminiIDE() {
       const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
       const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${API_KEY}`;
       
-      // CORS proxy который поддерживает любые запросы
-      const PROXY_URL = `https://api.allorigins.win/raw?url=${encodeURIComponent(GEMINI_URL)}`;
+      // CORS proxy который поддерживает POST запросы
+      const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(GEMINI_URL)}`;
 
       // Формируем историю для контекста
       const contents = messages
