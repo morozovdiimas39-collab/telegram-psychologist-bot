@@ -45,46 +45,29 @@ export default function GeminiIDE() {
     setIsLoading(true);
 
     try {
-      // Подключение к Gemini API напрямую через браузер
-      const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
-      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${API_KEY}`;
+      // Вызываем backend функцию которая обходит блокировку через прокси
+      const BACKEND_URL = 'https://functions.poehali.dev/8308b806-9ad4-4da6-b9a8-231cc85830ef';
 
-      // Формируем историю для контекста
-      const contents = messages
-        .filter(m => m.role !== 'assistant' || messages.indexOf(m) < messages.length)
-        .map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }]
-        }));
-
-      contents.push({
-        role: 'user',
-        parts: [{ text: input }]
-      });
-
-      const response = await fetch(API_URL, {
+      const response = await fetch(BACKEND_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-          }
+          messages: messages.concat([userMessage]).map(m => ({
+            role: m.role,
+            content: m.content
+          }))
         })
       });
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error?.message || 'Ошибка API');
+        throw new Error(error.error || 'Ошибка API');
       }
 
       const data = await response.json();
-      const aiResponse = data.candidates[0].content.parts[0].text;
+      const aiResponse = data.response;
 
       const assistantMessage: Message = {
         role: 'assistant',

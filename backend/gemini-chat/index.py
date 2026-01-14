@@ -56,7 +56,7 @@ def handler(event: dict, context) -> dict:
             })
         
         # Gemini API endpoint
-        url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent?key={api_key}'
+        url = f'https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key={api_key}'
         
         payload = {
             'contents': gemini_contents,
@@ -108,7 +108,7 @@ def handler(event: dict, context) -> dict:
                 },
                 'body': json.dumps({
                     'response': text,
-                    'model': 'gemini-2.0-flash-exp'
+                    'model': 'gemini-3-pro-preview'
                 })
             }
         else:
