@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import { quizApi } from '@/lib/quizApi';
 
 interface Answer {
   id?: number;
@@ -113,9 +114,28 @@ export default function QuizBuilder() {
       return;
     }
 
+    const createMetrikaButton = document.createElement('button');
+    createMetrikaButton.textContent = 'Создать цели в Метрике';
+    createMetrikaButton.className = 'bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded mt-2';
+    
     try {
-      // TODO: Backend для сохранения квиза
-      toast.success('Квиз сохранен!');
+      toast.success('Квиз сохранен!', {
+        description: 'Хотите автоматически создать цели и сегменты в Яндекс.Метрике?',
+        action: {
+          label: 'Создать',
+          onClick: async () => {
+            try {
+              toast.loading('Создаю цели и сегменты в Метрике...');
+              const result = await quizApi.createMetrikaGoalsAndSegments(quiz as any);
+              toast.success(`Готово! Создано ${result.created_goals.length} целей и ${result.created_segments.length} сегментов`, {
+                duration: 5000,
+              });
+            } catch (error: any) {
+              toast.error(error.message || 'Ошибка создания целей. Проверьте настройки Метрики');
+            }
+          }
+        }
+      });
       console.log('Quiz data:', quiz);
     } catch (error) {
       toast.error('Ошибка сохранения квиза');

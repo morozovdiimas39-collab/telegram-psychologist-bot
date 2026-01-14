@@ -60,4 +60,23 @@ export const quizApi = {
     }
     return response.json();
   },
+
+  async createMetrikaGoalsAndSegments(quiz: Quiz): Promise<{
+    success: boolean;
+    created_goals: Array<{ name: string; id?: number; status: string }>;
+    created_segments: Array<{ name: string; id?: number; status: string }>;
+  }> {
+    const response = await fetch('https://functions.poehali.dev/68e9b314-2779-4c02-a2e7-30c01923111f', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ quiz }),
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to create Metrika goals');
+    }
+    return response.json();
+  },
 };

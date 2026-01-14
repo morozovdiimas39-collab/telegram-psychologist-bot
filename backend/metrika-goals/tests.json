@@ -1,0 +1,35 @@
+{
+  "tests": [
+    {
+      "name": "Create goals from quiz data",
+      "method": "POST",
+      "body": {
+        "quiz": {
+          "title": "Test Quiz",
+          "questions": [
+            {
+              "text": "Сколько комнат?",
+              "answers": [
+                {
+                  "text": "1 комната",
+                  "metrika_goal": "rooms_1k"
+                },
+                {
+                  "text": "2 комнаты",
+                  "metrika_goal": "rooms_2k"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true,
+        "created_goals": "array",
+        "total": "number"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
