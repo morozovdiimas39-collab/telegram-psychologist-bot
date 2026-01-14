@@ -1,4 +1,5 @@
 {
+  "gemini-chat": "https://functions.poehali.dev/8308b806-9ad4-4da6-b9a8-231cc85830ef",
   "migrate": "https://functions.poehali.dev/e861fe2a-7e02-4b5e-a948-b5cdf4f6e620",
   "deploy-functions": "https://functions.poehali.dev/bdf0df74-2961-4e8c-88bb-756cfc7c4bc1",
   "vm-create-ssh": "https://functions.poehali.dev/2ad40487-21a0-4145-b7ac-6bc414b3b82b",

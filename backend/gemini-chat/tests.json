@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "Test Gemini chat endpoint",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "messages": [
+          {
+            "role": "user",
+            "content": "Привет! Ответь одним словом: работает?"
+          }
+        ]
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "response": "string",
+        "model": "gemini-2.0-flash-exp"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
