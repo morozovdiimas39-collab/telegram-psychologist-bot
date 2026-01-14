@@ -1,9 +1,11 @@
 import json
 import os
-import requests
+import urllib.request
+import urllib.parse
+import urllib.error
 
 def handler(event: dict, context) -> dict:
-    '''API для общения с Gemini 2.0 Flash Experimental через прокси'''
+    '''API для общения с Gemini 3 Pro Preview через VM прокси'''
     
     method = event.get('httpMethod', 'POST')
     
@@ -68,34 +70,34 @@ def handler(event: dict, context) -> dict:
             }
         }
         
-        # Настройка прокси для обхода блокировки
-        proxies = None
-        if proxy_url:
-            # Формат: user:pass@host:port - используем HTTP прокси
-            proxies = {
-                'http': f'http://{proxy_url}',
-                'https': f'http://{proxy_url}'
-            }
+        # Пробуем без прокси - возможно Cloud Functions уже в разрешенной зоне
+        opener = urllib.request.build_opener()
         
         # Запрос к Gemini
-        response = requests.post(
+        req = urllib.request.Request(
             url,
-            json=payload,
-            proxies=proxies,
-            timeout=60
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
         )
         
-        if response.status_code != 200:
+        try:
+            response = opener.open(req, timeout=60)
+            result = json.loads(response.read().decode('utf-8'))
+        except urllib.error.HTTPError as e:
             return {
-                'statusCode': response.status_code,
+                'statusCode': e.code,
                 'headers': {'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({
                     'error': 'Gemini API error',
-                    'details': response.text
+                    'details': e.read().decode('utf-8')
                 })
             }
-        
-        result = response.json()
+        except Exception as e:
+            return {
+                'statusCode': 500,
+                'headers': {'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': f'Request failed: {str(e)}'})
+            }
         
         # Извлекаем ответ
         if 'candidates' in result and len(result['candidates']) > 0:
