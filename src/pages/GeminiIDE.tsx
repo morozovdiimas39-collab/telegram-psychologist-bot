@@ -45,36 +45,21 @@ export default function GeminiIDE() {
     setIsLoading(true);
 
     try {
-      // Используем публичный CORS proxy для обхода блокировки
-      const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
-      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${API_KEY}`;
-      
-      // CORS proxy который поддерживает POST запросы
-      const PROXY_URL = `https://corsproxy.io/?${encodeURIComponent(GEMINI_URL)}`;
+      // Вызываем backend который использует SOCKS прокси
+      const BACKEND_URL = 'https://functions.poehali.dev/8308b806-9ad4-4da6-b9a8-231cc85830ef';
 
-      // Формируем историю для контекста
-      const contents = messages
-        .concat([userMessage])
-        .map(m => ({
-          role: m.role === 'assistant' ? 'model' : 'user',
-          parts: [{ text: m.content }]
-        }));
-
-      console.log('Отправляю запрос к Gemini через CORS proxy...');
+      console.log('Отправляю запрос через backend с SOCKS прокси...');
       
-      const response = await fetch(PROXY_URL, {
+      const response = await fetch(BACKEND_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          contents,
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 8192,
-          }
+          messages: messages.concat([userMessage]).map(m => ({
+            role: m.role,
+            content: m.content
+          }))
         })
       });
 
@@ -87,9 +72,9 @@ export default function GeminiIDE() {
       }
 
       const data = await response.json();
-      console.log('Данные от Gemini:', data);
+      console.log('Данные от backend:', data);
       
-      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Нет ответа';
+      const aiResponse = data.response || 'Нет ответа';
       console.log('Извлеченный ответ:', aiResponse);
 
       const assistantMessage: Message = {

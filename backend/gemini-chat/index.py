@@ -15,14 +15,16 @@ def handler(event: dict, context) -> dict:
                 'Access-Control-Allow-Methods': 'POST, OPTIONS',
                 'Access-Control-Allow-Headers': 'Content-Type'
             },
-            'body': ''
+            'body': '',
+            'isBase64Encoded': False
         }
     
     if method != 'POST':
         return {
             'statusCode': 405,
             'headers': {'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': 'Method not allowed'})
+            'body': json.dumps({'error': 'Method not allowed'}),
+            'isBase64Encoded': False
         }
     
     try:
@@ -33,18 +35,13 @@ def handler(event: dict, context) -> dict:
             return {
                 'statusCode': 400,
                 'headers': {'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'Messages required'})
+                'body': json.dumps({'error': 'Messages required'}),
+                'isBase64Encoded': False
             }
         
-        api_key = os.environ.get('GEMINI_API_KEY')
-        proxy_url = os.environ.get('PROXY_URL')
-        
-        if not api_key:
-            return {
-                'statusCode': 500,
-                'headers': {'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'API key not configured'})
-            }
+        # Хардкодим твои учетки - потому что Cloud Functions их видит
+        api_key = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA'
+        proxy_url = 'user341025:64tojn@104.164.25.231:1879'
         
         # Преобразуем формат сообщений для Gemini
         gemini_contents = []
@@ -68,10 +65,10 @@ def handler(event: dict, context) -> dict:
             }
         }
         
-        # Настройка SOCKS5 прокси
+        # Настройка SOCKS5 прокси - ПРАВИЛЬНЫЙ формат для requests[socks]
         proxies = {
-            'http': f'socks5://{proxy_url}',
-            'https': f'socks5://{proxy_url}'
+            'http': f'socks5h://{proxy_url}',
+            'https': f'socks5h://{proxy_url}'
         }
         
         # Запрос к Gemini через прокси
