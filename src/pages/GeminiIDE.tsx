@@ -15,7 +15,7 @@ export default function GeminiIDE() {
   const [messages, setMessages] = useState<Message[]>([
     {
       role: 'assistant',
-      content: 'Привет! Я Gemini 1.5 Pro - мощный AI ассистент для программирования. Спрашивай что угодно про код!',
+      content: 'Привет! Я Gemini 3 Pro - мощный AI ассистент для программирования. Спрашивай что угодно про код!',
       timestamp: new Date()
     }
   ]);
@@ -47,7 +47,7 @@ export default function GeminiIDE() {
     try {
       // Подключение к Gemini API напрямую через браузер
       const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
-      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-pro:generateContent?key=${API_KEY}`;
+      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro:generateContent?key=${API_KEY}`;
 
       // Формируем историю для контекста
       const contents = messages
@@ -127,7 +127,7 @@ export default function GeminiIDE() {
               Gemini IDE
             </h1>
             <p className="text-slate-400">
-              Бесплатная платформа разработки на базе Gemini 2.0 Flash Experimental
+              Бесплатная платформа разработки на базе Gemini 3 Pro
             </p>
           </div>
           <Button 
@@ -250,7 +250,7 @@ export default function GeminiIDE() {
                 <h3 className="text-white font-bold">Мощный AI</h3>
               </div>
               <p className="text-sm text-slate-400">
-                Gemini 2.0 Flash Experimental
+                Gemini 3 Pro
               </p>
             </CardContent>
           </Card>
