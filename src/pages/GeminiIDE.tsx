@@ -60,6 +60,8 @@ export default function GeminiIDE() {
           parts: [{ text: m.content }]
         }));
 
+      console.log('Отправляю запрос к Gemini через CORS proxy...');
+      
       const response = await fetch(PROXY_URL, {
         method: 'POST',
         headers: {
@@ -76,13 +78,19 @@ export default function GeminiIDE() {
         })
       });
 
+      console.log('Ответ получен, статус:', response.status);
+
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('Ошибка API:', errorText);
         throw new Error(errorText || 'Ошибка API');
       }
 
       const data = await response.json();
+      console.log('Данные от Gemini:', data);
+      
       const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Нет ответа';
+      console.log('Извлеченный ответ:', aiResponse);
 
       const assistantMessage: Message = {
         role: 'assistant',
