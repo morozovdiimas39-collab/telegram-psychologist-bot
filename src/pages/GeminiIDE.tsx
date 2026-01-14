@@ -47,7 +47,7 @@ export default function GeminiIDE() {
     try {
       // Подключение к Gemini API напрямую через браузер
       const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
-      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-thinking-exp:generateContent?key=${API_KEY}`;
+      const API_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${API_KEY}`;
 
       // Формируем историю для контекста
       const contents = messages
