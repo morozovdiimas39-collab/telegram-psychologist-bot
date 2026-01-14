@@ -45,21 +45,33 @@ export default function GeminiIDE() {
     setIsLoading(true);
 
     try {
-      // Вызываем backend который использует SOCKS прокси
-      const BACKEND_URL = 'https://functions.poehali.dev/8308b806-9ad4-4da6-b9a8-231cc85830ef';
+      // Прямой вызов Gemini без прокси - пробуем из браузера
+      const API_KEY = 'AIzaSyBheSf96XE7Svv5nDbJvEv-vq2ynS8oIlA';
+      const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-pro-preview:generateContent?key=${API_KEY}`;
 
-      console.log('Отправляю запрос через backend с SOCKS прокси...');
+      // Формируем историю
+      const contents = messages
+        .concat([userMessage])
+        .map(m => ({
+          role: m.role === 'assistant' ? 'model' : 'user',
+          parts: [{ text: m.content }]
+        }));
+
+      console.log('Прямой запрос к Gemini...');
       
-      const response = await fetch(BACKEND_URL, {
+      const response = await fetch(GEMINI_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          messages: messages.concat([userMessage]).map(m => ({
-            role: m.role,
-            content: m.content
-          }))
+          contents,
+          generationConfig: {
+            temperature: 0.7,
+            topK: 40,
+            topP: 0.95,
+            maxOutputTokens: 8192,
+          }
         })
       });
 
@@ -72,9 +84,9 @@ export default function GeminiIDE() {
       }
 
       const data = await response.json();
-      console.log('Данные от backend:', data);
+      console.log('Данные от Gemini:', data);
       
-      const aiResponse = data.response || 'Нет ответа';
+      const aiResponse = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Нет ответа';
       console.log('Извлеченный ответ:', aiResponse);
 
       const assistantMessage: Message = {
