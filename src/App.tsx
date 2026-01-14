@@ -8,6 +8,7 @@ import Index from "./pages/Index";
 import Deploy from "./pages/Deploy";
 import RealtyLeads from "./pages/RealtyLeads";
 import GeminiIDE from "./pages/GeminiIDE";
+import QuizDashboard from "./pages/QuizDashboard";
 import QuizBuilder from "./pages/QuizBuilder";
 import QuizPublic from "./pages/QuizPublic";
 import NotFound from "./pages/NotFound";
@@ -25,6 +26,7 @@ const App = () => (
           <Route path="/deploy" element={<Deploy />} />
           <Route path="/realty-leads" element={<RealtyLeads />} />
           <Route path="/gemini-ide" element={<GeminiIDE />} />
+          <Route path="/quiz" element={<QuizDashboard />} />
           <Route path="/quiz-builder" element={<QuizBuilder />} />
           <Route path="/quiz/:slug" element={<QuizPublic />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}

@@ -3,7 +3,7 @@
     {
       "name": "Get quiz by slug",
       "method": "GET",
-      "path": "/quiz/realty-quiz",
+      "path": "/?action=get&slug=realty-quiz",
       "expectedStatus": 200,
       "expectedBody": {
         "id": "number",
@@ -15,7 +15,7 @@
     {
       "name": "Get all quizzes",
       "method": "GET",
-      "path": "/list",
+      "path": "/?action=list",
       "expectedStatus": 200,
       "bodyMatcher": "partial"
     }

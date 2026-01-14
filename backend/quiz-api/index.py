@@ -24,21 +24,21 @@ def handler(event: dict, context) -> dict:
             'isBase64Encoded': False
         }
     
-    path = event.get('path', '')
+    params = event.get('queryStringParameters') or {}
+    action = params.get('action', 'list')
     
     try:
-        if method == 'GET' and '/quiz/' in path:
-            slug = path.split('/quiz/')[1] if '/quiz/' in path else None
+        if method == 'GET' and action == 'get':
+            slug = params.get('slug')
             if not slug:
                 return error_response(400, 'Slug required')
-            
             return get_quiz_by_slug(slug)
         
-        elif method == 'POST' and '/submit' in path:
+        elif method == 'POST' and action == 'submit':
             body = json.loads(event.get('body', '{}'))
             return submit_quiz_response(body)
         
-        elif method == 'GET' and '/list' in path:
+        elif method == 'GET' and action == 'list':
             return get_all_quizzes()
         
         else:

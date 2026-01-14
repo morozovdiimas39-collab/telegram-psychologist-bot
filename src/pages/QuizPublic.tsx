@@ -5,32 +5,12 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
-
-interface Answer {
-  id: number;
-  answer_text: string;
-  answer_value: string;
-}
-
-interface Question {
-  id: number;
-  question_text: string;
-  metrika_goal_prefix: string;
-  answers: Answer[];
-}
-
-interface Quiz {
-  id: number;
-  title: string;
-  description: string;
-  yandex_metrika_id: string;
-  questions: Question[];
-}
+import { quizApi, Quiz } from '@/lib/quizApi';
 
 export default function QuizPublic() {
   const { slug } = useParams<{ slug: string }>();
   const [quiz, setQuiz] = useState<Quiz | null>(null);
-  const [currentStep, setCurrentStep] = useState(0);
+  const [currentStep, setCurrentStep] = useState(-1);
   const [answers, setAnswers] = useState<{ [key: number]: number }>({});
   const [contactInfo, setContactInfo] = useState({ name: '', phone: '', email: '' });
   const [isLoading, setIsLoading] = useState(true);
@@ -41,51 +21,16 @@ export default function QuizPublic() {
   }, [slug]);
 
   const loadQuiz = async () => {
+    if (!slug) return;
+    
     try {
-      // TODO: Загрузка из backend
-      // Временно - тестовые данные
-      setQuiz({
-        id: 1,
-        title: 'Подбор квартиры',
-        description: 'Ответьте на несколько вопросов и получите подборку квартир',
-        yandex_metrika_id: '12345678',
-        questions: [
-          {
-            id: 1,
-            question_text: 'Сколько комнат вам нужно?',
-            metrika_goal_prefix: 'rooms',
-            answers: [
-              { id: 1, answer_text: '1 комната', answer_value: '1k' },
-              { id: 2, answer_text: '2 комнаты', answer_value: '2k' },
-              { id: 3, answer_text: '3 комнаты', answer_value: '3k' }
-            ]
-          },
-          {
-            id: 2,
-            question_text: 'Как планируете оплачивать?',
-            metrika_goal_prefix: 'payment',
-            answers: [
-              { id: 4, answer_text: 'Рассрочка', answer_value: 'rassrochka' },
-              { id: 5, answer_text: 'Ипотека', answer_value: 'ipoteka' },
-              { id: 6, answer_text: 'Наличные', answer_value: 'nalichka' }
-            ]
-          },
-          {
-            id: 3,
-            question_text: 'Когда планируете покупать?',
-            metrika_goal_prefix: 'timing',
-            answers: [
-              { id: 7, answer_text: 'В ближайшее время', answer_value: 'now' },
-              { id: 8, answer_text: 'Через полгода', answer_value: '6months' },
-              { id: 9, answer_text: 'Через год', answer_value: '1year' }
-            ]
-          }
-        ]
-      });
+      const data = await quizApi.getQuiz(slug);
+      setQuiz(data);
       setIsLoading(false);
     } catch (error) {
-      toast.error('Ошибка загрузки квиза');
+      toast.error('Квиз не найден');
       console.error(error);
+      setIsLoading(false);
     }
   };
 
@@ -126,7 +71,7 @@ export default function QuizPublic() {
   };
 
   const prevStep = () => {
-    if (currentStep > 0) {
+    if (currentStep > -1) {
       setCurrentStep(currentStep - 1);
     }
   };
@@ -149,15 +94,13 @@ export default function QuizPublic() {
       });
       const segment_key = segmentParts.join('_');
 
-      // TODO: Отправка на backend
-      console.log('Quiz submission:', {
-        quiz_id: quiz?.id,
+      await quizApi.submitQuiz({
+        quiz_id: quiz!.id,
         answers,
         contactInfo,
         segment_key
       });
 
-      // Отправка финальной цели в Метрику
       sendYandexMetrikaGoal('quiz_complete');
 
       setIsComplete(true);
@@ -169,7 +112,7 @@ export default function QuizPublic() {
   };
 
   const getProgress = () => {
-    if (!quiz) return 0;
+    if (!quiz || currentStep < 0) return 0;
     return ((currentStep + 1) / (quiz.questions.length + 1)) * 100;
   };
 
@@ -205,7 +148,38 @@ export default function QuizPublic() {
     );
   }
 
-  const currentQuestion = currentStep < quiz.questions.length ? quiz.questions[currentStep] : null;
+  const currentQuestion = currentStep >= 0 && currentStep < quiz.questions.length ? quiz.questions[currentStep] : null;
+
+  if (currentStep === -1) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 flex items-center justify-center p-4">
+        <Card className="bg-white/5 backdrop-blur border-white/10 max-w-2xl w-full">
+          <CardContent className="p-12 text-center">
+            <div className="text-6xl mb-6">🏠</div>
+            <h1 className="text-4xl font-bold text-white mb-4">{quiz.title}</h1>
+            <p className="text-xl text-slate-300 mb-8">{quiz.description}</p>
+            <div className="flex items-center justify-center gap-6 mb-8 text-slate-400">
+              <div className="flex items-center gap-2">
+                <Icon name="Clock" size={20} />
+                <span>2 минуты</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Icon name="HelpCircle" size={20} />
+                <span>{quiz.questions.length} вопросов</span>
+              </div>
+            </div>
+            <Button
+              onClick={() => setCurrentStep(0)}
+              className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-lg px-8 py-6"
+            >
+              Начать
+              <Icon name="ArrowRight" size={24} className="ml-2" />
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-purple-950 to-slate-950 p-4">
@@ -301,7 +275,7 @@ export default function QuizPublic() {
         <div className="flex justify-between">
           <Button
             onClick={prevStep}
-            disabled={currentStep === 0}
+            disabled={currentStep === -1}
             variant="outline"
             className="border-white/20 text-white hover:bg-white/10"
           >
