@@ -1,8 +1,6 @@
 import json
 import os
-import urllib.request
-import urllib.parse
-import urllib.error
+import requests
 
 def handler(event: dict, context) -> dict:
     '''API для общения с Gemini 3 Pro Preview через VM прокси'''
@@ -70,39 +68,37 @@ def handler(event: dict, context) -> dict:
             }
         }
         
-        # Пробуем без прокси - возможно Cloud Functions уже в разрешенной зоне
-        opener = urllib.request.build_opener()
+        # Настройка SOCKS5 прокси
+        proxies = {
+            'http': f'socks5://{proxy_url}',
+            'https': f'socks5://{proxy_url}'
+        }
         
-        # Запрос к Gemini
-        req = urllib.request.Request(
+        # Запрос к Gemini через прокси
+        response = requests.post(
             url,
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'}
+            json=payload,
+            proxies=proxies,
+            timeout=60
         )
         
-        try:
-            response = opener.open(req, timeout=60)
-            result = json.loads(response.read().decode('utf-8'))
-        except urllib.error.HTTPError as e:
+        if response.status_code != 200:
             return {
-                'statusCode': e.code,
+                'statusCode': response.status_code,
                 'headers': {'Access-Control-Allow-Origin': '*'},
                 'body': json.dumps({
                     'error': 'Gemini API error',
-                    'details': e.read().decode('utf-8')
-                })
+                    'details': response.text
+                }),
+                'isBase64Encoded': False
             }
-        except Exception as e:
-            return {
-                'statusCode': 500,
-                'headers': {'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': f'Request failed: {str(e)}'})
-            }
+        
+        result = response.json()
         
         # Извлекаем ответ
         if 'candidates' in result and len(result['candidates']) > 0:
             text = result['candidates'][0]['content']['parts'][0]['text']
-            return {
+            result = {
                 'statusCode': 200,
                 'headers': {
                     'Content-Type': 'application/json',
@@ -111,18 +107,22 @@ def handler(event: dict, context) -> dict:
                 'body': json.dumps({
                     'response': text,
                     'model': 'gemini-3-pro-preview'
-                })
+                }),
+                'isBase64Encoded': False
             }
+            return result
         else:
             return {
                 'statusCode': 500,
                 'headers': {'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'No response from Gemini'})
+                'body': json.dumps({'error': 'No response from Gemini'}),
+                'isBase64Encoded': False
             }
             
     except Exception as e:
         return {
             'statusCode': 500,
             'headers': {'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': str(e)})
+            'body': json.dumps({'error': str(e)}),
+            'isBase64Encoded': False
         }
