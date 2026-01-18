@@ -3,8 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
@@ -32,6 +30,7 @@ interface DeployConfig {
 }
 
 const Deploy = () => {
+  const [activeTab, setActiveTab] = useState<'deploy' | 'vms'>('deploy');
   const [vms, setVms] = useState<VMInstance[]>([]);
   const [configs, setConfigs] = useState<DeployConfig[]>([]);
   const [selectedConfig, setSelectedConfig] = useState<string>("");
@@ -70,7 +69,7 @@ const Deploy = () => {
     try {
       const resp = await fetch(API_ENDPOINTS.vmList);
       const data = await resp.json();
-      setVMs(data);
+      setVms(data);
     } catch (error: any) {
       toast({
         title: "Ошибка загрузки VM",
@@ -125,7 +124,7 @@ const Deploy = () => {
         title: data.status === 'ready' ? "VM создана!" : "VM создаётся",
         description: data.status === 'ready' 
           ? `VM ${newVM.name} готова: ${data.ip_address}` 
-          : "Создание займёт 1-2 минуты. Обнови список VM через минуту."
+          : "Создание займёт 1-2 минуты. Обнови список VM."
       });
 
       setShowNewVMDialog(false);
@@ -209,20 +208,18 @@ const Deploy = () => {
 
       setDeployLog(prev => [
         ...prev,
-        ...data.logs || [],
-        "",
-        "✅ Деплой завершён успешно!"
+        ...data.logs || []
       ]);
 
       toast({
-        title: "Деплой завершён!",
-        description: `${config.domain} успешно задеплоен`
+        title: "Информация получена",
+        description: "Проверь логи деплоя"
       });
 
     } catch (error: any) {
       setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
       toast({
-        title: "Ошибка деплоя",
+        title: "Ошибка",
         description: error.message,
         variant: "destructive"
       });
@@ -245,8 +242,7 @@ const Deploy = () => {
       }
 
       toast({
-        title: "Конфиг удалён",
-        description: `Конфиг ${name} удалён`
+        title: "Конфиг удалён"
       });
 
       loadConfigs();
@@ -260,7 +256,7 @@ const Deploy = () => {
   };
 
   const handleDeleteVM = async (id: number) => {
-    if (!confirm("Удалить VM из списка? (сам сервер в Yandex Cloud останется)")) return;
+    if (!confirm("Удалить VM из списка?")) return;
 
     try {
       const resp = await fetch(`${API_ENDPOINTS.vmList}?id=${id}`, {
@@ -273,8 +269,7 @@ const Deploy = () => {
       }
 
       toast({
-        title: "VM удалена",
-        description: "VM удалена из списка"
+        title: "VM удалена"
       });
 
       loadVMs();
@@ -304,322 +299,245 @@ const Deploy = () => {
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold text-white">Деплой проектов</h1>
           <p className="text-slate-300 text-lg">
-            Полный деплой: Frontend + Backend + База данных
+            Управление VM и деплой проектов
           </p>
         </div>
 
-        <Tabs defaultValue="deploy" className="w-full">
-          <TabsList className="grid w-full max-w-md mx-auto grid-cols-2">
-            <TabsTrigger value="deploy">Деплой</TabsTrigger>
-            <TabsTrigger value="vms">Серверы VM</TabsTrigger>
-          </TabsList>
+        {/* Tab buttons */}
+        <div className="flex gap-4 justify-center">
+          <Button
+            onClick={() => setActiveTab('deploy')}
+            variant={activeTab === 'deploy' ? 'default' : 'outline'}
+            className={activeTab === 'deploy' ? 'bg-blue-600' : ''}
+          >
+            <Icon name="Rocket" className="mr-2 h-4 w-4" />
+            Деплой
+          </Button>
+          <Button
+            onClick={() => setActiveTab('vms')}
+            variant={activeTab === 'vms' ? 'default' : 'outline'}
+            className={activeTab === 'vms' ? 'bg-blue-600' : ''}
+          >
+            <Icon name="Server" className="mr-2 h-4 w-4" />
+            Серверы VM
+          </Button>
+        </div>
 
-          {/* Вкладка Деплой */}
-          <TabsContent value="deploy" className="space-y-6">
-            <div className="grid lg:grid-cols-3 gap-6">
-              {/* Список конфигов */}
-              <Card className="bg-white/10 backdrop-blur border-white/20">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center justify-between">
-                    <span className="flex items-center gap-2">
-                      <Icon name="Settings" className="h-5 w-5" />
-                      Конфигурации
-                    </span>
-                    <Button
-                      size="sm"
-                      onClick={() => setShowNewConfigDialog(true)}
-                      className="bg-green-500 hover:bg-green-600"
-                      disabled={vms.length === 0}
-                    >
-                      <Icon name="Plus" className="h-4 w-4" />
-                    </Button>
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {vms.length === 0 ? (
-                    <div className="text-center text-slate-400 py-8">
-                      <Icon name="Server" className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p>Сначала создай VM</p>
-                      <p className="text-xs mt-1">Перейди на вкладку "Серверы VM"</p>
-                    </div>
-                  ) : configs.length === 0 ? (
-                    <div className="text-center text-slate-400 py-8">
-                      <Icon name="FolderOpen" className="h-12 w-12 mx-auto mb-2 opacity-50" />
-                      <p>Нет конфигураций</p>
-                      <p className="text-xs mt-1">Создай первую!</p>
-                    </div>
-                  ) : (
-                    configs.map(config => (
-                      <div
-                        key={config.id}
-                        className={`p-3 rounded-lg border cursor-pointer transition-colors ${
-                          selectedConfig === config.name
-                            ? 'bg-blue-500/30 border-blue-400'
-                            : 'bg-white/5 border-white/10 hover:bg-white/10'
-                        }`}
-                        onClick={() => setSelectedConfig(config.name)}
-                      >
-                        <div className="flex items-center justify-between">
-                          <div>
-                            <div className="text-white font-semibold">{config.name}</div>
-                            <div className="text-xs text-slate-400">{config.domain}</div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteConfig(config.name);
-                            }}
-                            className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                          >
-                            <Icon name="Trash2" className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
-
-              {/* Детали конфига и деплой */}
-              <Card className="bg-white/10 backdrop-blur border-white/20 lg:col-span-2">
-                <CardHeader>
-                  <CardTitle className="text-white flex items-center gap-2">
-                    <Icon name="Rocket" className="h-5 w-5" />
-                    {currentConfig ? currentConfig.name : "Выбери конфиг"}
-                  </CardTitle>
-                  <CardDescription className="text-slate-300">
-                    Деплой проекта на сервер
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  {currentConfig && currentVM ? (
-                    <div className="space-y-6">
-                      {/* Информация о конфиге */}
-                      <div className="grid grid-cols-2 gap-4 p-4 bg-slate-900/50 rounded-lg">
-                        <div>
-                          <div className="text-xs text-slate-400 mb-1">Домен</div>
-                          <div className="text-white font-mono">{currentConfig.domain}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400 mb-1">GitHub</div>
-                          <a 
-                            href={`https://github.com/${currentConfig.github_repo}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-400 hover:text-blue-300 font-mono text-sm flex items-center gap-1"
-                          >
-                            {currentConfig.github_repo}
-                            <Icon name="ExternalLink" className="h-3 w-3" />
-                          </a>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400 mb-1">VM сервер</div>
-                          <div className="text-white">{currentVM.name}</div>
-                        </div>
-                        <div>
-                          <div className="text-xs text-slate-400 mb-1">IP адрес</div>
-                          <div className="text-white font-mono">{currentVM.ip_address || 'создаётся...'}</div>
-                        </div>
-                      </div>
-
-                      {/* Кнопки деплоя */}
-                      <div className="grid grid-cols-3 gap-3">
-                        <Button
-                          onClick={() => handleDeploy('all')}
-                          disabled={isDeploying || !currentVM.ip_address}
-                          className="bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600"
-                        >
-                          <Icon name="Zap" className="mr-2 h-4 w-4" />
-                          Всё
-                        </Button>
-                        <Button
-                          onClick={() => handleDeploy('frontend')}
-                          disabled={isDeploying || !currentVM.ip_address}
-                          className="bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600"
-                        >
-                          <Icon name="Layout" className="mr-2 h-4 w-4" />
-                          Frontend
-                        </Button>
-                        <Button
-                          onClick={() => handleDeploy('backend')}
-                          disabled={isDeploying || !currentVM.ip_address}
-                          className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600"
-                        >
-                          <Icon name="Database" className="mr-2 h-4 w-4" />
-                          Backend
-                        </Button>
-                      </div>
-
-                      {/* Логи деплоя */}
-                      {deployLog.length > 0 && (
-                        <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 font-mono text-sm text-slate-300 max-h-96 overflow-y-auto">
-                          {deployLog.map((log, i) => (
-                            <div key={i}>{log}</div>
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Что деплоится */}
-                      <div className="bg-blue-500/10 border border-blue-500/50 rounded-lg p-4 space-y-2">
-                        <div className="text-blue-300 font-semibold text-sm">Что деплоится:</div>
-                        <div className="grid grid-cols-3 gap-2 text-xs text-slate-300">
-                          <div className="space-y-1">
-                            <div className="font-semibold text-purple-300">Всё</div>
-                            <div>Frontend + Backend + DB</div>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="font-semibold text-green-300">Frontend</div>
-                            <div>Сайт на Nginx + SSL</div>
-                          </div>
-                          <div className="space-y-1">
-                            <div className="font-semibold text-orange-300">Backend</div>
-                            <div>Функции + миграции</div>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="text-center text-slate-400 py-12">
-                      <Icon name="MousePointerClick" className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                      <p>Выбери конфигурацию слева</p>
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </TabsContent>
-
-          {/* Вкладка VM */}
-          <TabsContent value="vms" className="space-y-6">
+        {/* Deploy tab */}
+        {activeTab === 'deploy' && (
+          <div className="grid lg:grid-cols-3 gap-6">
             <Card className="bg-white/10 backdrop-blur border-white/20">
               <CardHeader>
                 <CardTitle className="text-white flex items-center justify-between">
-                  <span className="flex items-center gap-2">
-                    <Icon name="Server" className="h-5 w-5" />
-                    Серверы VM
-                  </span>
+                  <span>Конфигурации</span>
                   <Button
                     size="sm"
-                    onClick={() => setShowNewVMDialog(true)}
+                    onClick={() => setShowNewConfigDialog(true)}
                     className="bg-green-500 hover:bg-green-600"
+                    disabled={vms.length === 0}
                   >
-                    <Icon name="Plus" className="mr-2 h-4 w-4" />
-                    Создать VM
+                    <Icon name="Plus" className="h-4 w-4" />
                   </Button>
                 </CardTitle>
-                <CardDescription className="text-slate-300">
-                  Управление виртуальными машинами в Yandex Cloud
-                </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="space-y-2">
                 {vms.length === 0 ? (
-                  <div className="text-center text-slate-400 py-12">
-                    <Icon name="Server" className="h-16 w-16 mx-auto mb-4 opacity-50" />
-                    <p className="mb-2">Нет серверов VM</p>
-                    <p className="text-xs text-slate-500">Создай первый сервер для деплоя проектов</p>
+                  <div className="text-center text-slate-400 py-8">
+                    <Icon name="Server" className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Сначала создай VM</p>
+                    <p className="text-xs mt-1">Перейди на вкладку "Серверы VM"</p>
+                  </div>
+                ) : configs.length === 0 ? (
+                  <div className="text-center text-slate-400 py-8">
+                    <Icon name="FolderOpen" className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                    <p>Нет конфигураций</p>
                   </div>
                 ) : (
-                  <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {vms.map(vm => (
-                      <div
-                        key={vm.id}
-                        className="p-4 bg-slate-900/50 border border-slate-700 rounded-lg space-y-3"
-                      >
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <div className="text-white font-semibold">{vm.name}</div>
-                            <div className="text-xs text-slate-400">{vm.yandex_vm_id || 'создаётся...'}</div>
-                          </div>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteVM(vm.id)}
-                            className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                          >
-                            <Icon name="Trash2" className="h-4 w-4" />
-                          </Button>
+                  configs.map(config => (
+                    <div
+                      key={config.id}
+                      className={`p-3 rounded-lg border cursor-pointer ${
+                        selectedConfig === config.name
+                          ? 'bg-blue-500/30 border-blue-400'
+                          : 'bg-white/5 border-white/10 hover:bg-white/10'
+                      }`}
+                      onClick={() => setSelectedConfig(config.name)}
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-white font-semibold">{config.name}</div>
+                          <div className="text-xs text-slate-400">{config.domain}</div>
                         </div>
-                        
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <Icon name="Globe" className="h-3 w-3 text-slate-400" />
-                            <span className="text-sm text-slate-300 font-mono">
-                              {vm.ip_address || 'создаётся...'}
-                            </span>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Icon name="User" className="h-3 w-3 text-slate-400" />
-                            <span className="text-sm text-slate-300">{vm.ssh_user}</span>
-                          </div>
-                        </div>
-
-                        <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
-                          vm.status === 'ready' ? 'bg-green-500/20 text-green-300' :
-                          vm.status === 'creating' ? 'bg-yellow-500/20 text-yellow-300' :
-                          'bg-red-500/20 text-red-300'
-                        }`}>
-                          <Icon 
-                            name={vm.status === 'ready' ? 'CheckCircle' : vm.status === 'creating' ? 'Loader2' : 'XCircle'} 
-                            className={`h-3 w-3 ${vm.status === 'creating' ? 'animate-spin' : ''}`}
-                          />
-                          {vm.status === 'ready' ? 'Готов' : vm.status === 'creating' ? 'Создаётся' : 'Ошибка'}
-                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleDeleteConfig(config.name);
+                          }}
+                          className="text-red-400"
+                        >
+                          <Icon name="Trash2" className="h-4 w-4" />
+                        </Button>
                       </div>
-                    ))}
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="bg-white/10 backdrop-blur border-white/20 lg:col-span-2">
+              <CardHeader>
+                <CardTitle className="text-white">
+                  {currentConfig ? currentConfig.name : "Выбери конфиг"}
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                {currentConfig && currentVM ? (
+                  <div className="space-y-6">
+                    <div className="grid grid-cols-2 gap-4 p-4 bg-slate-900/50 rounded-lg">
+                      <div>
+                        <div className="text-xs text-slate-400">Домен</div>
+                        <div className="text-white">{currentConfig.domain}</div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-slate-400">VM</div>
+                        <div className="text-white">{currentVM.name} ({currentVM.ip_address})</div>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-3">
+                      <Button
+                        onClick={() => handleDeploy('all')}
+                        disabled={isDeploying}
+                        className="bg-purple-600"
+                      >
+                        Всё
+                      </Button>
+                      <Button
+                        onClick={() => handleDeploy('frontend')}
+                        disabled={isDeploying}
+                        className="bg-green-600"
+                      >
+                        Frontend
+                      </Button>
+                      <Button
+                        onClick={() => handleDeploy('backend')}
+                        disabled={isDeploying}
+                        className="bg-orange-600"
+                      >
+                        Backend
+                      </Button>
+                    </div>
+
+                    {deployLog.length > 0 && (
+                      <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 font-mono text-sm text-slate-300 max-h-96 overflow-y-auto">
+                        {deployLog.map((log, i) => (
+                          <div key={i}>{log}</div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-center text-slate-400 py-12">
+                    <p>Выбери конфигурацию</p>
                   </div>
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-        </Tabs>
+          </div>
+        )}
+
+        {/* VMs tab */}
+        {activeTab === 'vms' && (
+          <Card className="bg-white/10 backdrop-blur border-white/20">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center justify-between">
+                <span>Серверы VM</span>
+                <Button
+                  size="sm"
+                  onClick={() => setShowNewVMDialog(true)}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  <Icon name="Plus" className="mr-2 h-4 w-4" />
+                  Создать VM
+                </Button>
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              {vms.length === 0 ? (
+                <div className="text-center text-slate-400 py-12">
+                  <Icon name="Server" className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                  <p>Нет VM серверов</p>
+                </div>
+              ) : (
+                <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {vms.map(vm => (
+                    <div
+                      key={vm.id}
+                      className="p-4 bg-slate-900/50 border border-slate-700 rounded-lg space-y-3"
+                    >
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="text-white font-semibold">{vm.name}</div>
+                          <div className="text-xs text-slate-400">{vm.ip_address || 'создаётся...'}</div>
+                        </div>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => handleDeleteVM(vm.id)}
+                          className="text-red-400"
+                        >
+                          <Icon name="Trash2" className="h-4 w-4" />
+                        </Button>
+                      </div>
+                      <div className={`inline-flex items-center gap-1 px-2 py-1 rounded text-xs ${
+                        vm.status === 'ready' ? 'bg-green-500/20 text-green-300' :
+                        vm.status === 'creating' ? 'bg-yellow-500/20 text-yellow-300' :
+                        'bg-red-500/20 text-red-300'
+                      }`}>
+                        {vm.status}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </div>
 
-      {/* Диалог создания VM */}
+      {/* Dialog: New VM */}
       {showNewVMDialog && (
         <Dialog open={showNewVMDialog} onOpenChange={setShowNewVMDialog}>
           <DialogContent className="bg-slate-900 border-slate-700 text-white">
             <DialogHeader>
-              <DialogTitle>Создать новый сервер VM</DialogTitle>
+              <DialogTitle>Создать VM</DialogTitle>
               <DialogDescription className="text-slate-400">
-                Создание займёт 1-2 минуты. VM будет настроена автоматически (Nginx, Bun, SSL).
+                VM создастся в Yandex Cloud (1-2 минуты)
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="vm-name">Название VM</Label>
+              <div>
+                <Label>Название</Label>
                 <Input
-                  id="vm-name"
-                  placeholder="production-server-1"
+                  placeholder="production-server"
                   value={newVM.name}
                   onChange={(e) => setNewVM({ name: e.target.value })}
-                  className="bg-slate-800 border-slate-700"
+                  className="bg-slate-800"
                 />
               </div>
-
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3">
                 <Button
                   onClick={handleCreateVM}
                   disabled={isCreatingVM}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 bg-green-600"
                 >
-                  {isCreatingVM ? (
-                    <>
-                      <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                      Создаю...
-                    </>
-                  ) : (
-                    <>
-                      <Icon name="Plus" className="mr-2 h-4 w-4" />
-                      Создать VM
-                    </>
-                  )}
+                  {isCreatingVM ? "Создаю..." : "Создать"}
                 </Button>
                 <Button
                   onClick={() => setShowNewVMDialog(false)}
                   variant="outline"
-                  className="border-slate-700 hover:bg-slate-800"
                   disabled={isCreatingVM}
                 >
                   Отмена
@@ -630,81 +548,66 @@ const Deploy = () => {
         </Dialog>
       )}
 
-      {/* Диалог создания конфига */}
+      {/* Dialog: New Config */}
       {showNewConfigDialog && (
         <Dialog open={showNewConfigDialog} onOpenChange={setShowNewConfigDialog}>
           <DialogContent className="bg-slate-900 border-slate-700 text-white">
             <DialogHeader>
               <DialogTitle>Новая конфигурация</DialogTitle>
-              <DialogDescription className="text-slate-400">
-                Создай конфиг для деплоя проекта на VM
-              </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 mt-4">
-              <div className="space-y-2">
-                <Label htmlFor="config-name">Название</Label>
+              <div>
+                <Label>Название</Label>
                 <Input
-                  id="config-name"
                   placeholder="production"
                   value={newConfig.name}
                   onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
+                  className="bg-slate-800"
                 />
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="config-domain">Домен</Label>
+              <div>
+                <Label>Домен</Label>
                 <Input
-                  id="config-domain"
                   placeholder="mysite.ru"
                   value={newConfig.domain}
                   onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
+                  className="bg-slate-800"
                 />
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="config-repo">GitHub репозиторий</Label>
+              <div>
+                <Label>GitHub репозиторий</Label>
                 <Input
-                  id="config-repo"
-                  placeholder="username/repo-name"
+                  placeholder="username/repo"
                   value={newConfig.github_repo}
                   onChange={(e) => setNewConfig({...newConfig, github_repo: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
+                  className="bg-slate-800"
                 />
               </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="config-vm">Сервер VM</Label>
-                <Select 
-                  value={newConfig.vm_instance_id} 
-                  onValueChange={(value) => setNewConfig({...newConfig, vm_instance_id: value})}
+              <div>
+                <Label>VM сервер (ID)</Label>
+                <select
+                  value={newConfig.vm_instance_id}
+                  onChange={(e) => setNewConfig({...newConfig, vm_instance_id: e.target.value})}
+                  className="w-full p-2 rounded bg-slate-800 text-white border border-slate-700"
                 >
-                  <SelectTrigger className="bg-slate-800 border-slate-700">
-                    <SelectValue placeholder="Выбери VM" />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    {vms.filter(vm => vm.status === 'ready').map(vm => (
-                      <SelectItem key={vm.id} value={vm.id.toString()}>
-                        {vm.name} ({vm.ip_address})
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <option value="">Выбери VM</option>
+                  {vms.filter(vm => vm.status === 'ready').map(vm => (
+                    <option key={vm.id} value={vm.id}>
+                      {vm.name} ({vm.ip_address})
+                    </option>
+                  ))}
+                </select>
               </div>
-
-              <div className="flex gap-3 pt-4">
+              <div className="flex gap-3">
                 <Button
                   onClick={handleCreateConfig}
-                  className="flex-1 bg-green-600 hover:bg-green-700"
+                  className="flex-1 bg-green-600"
                 >
-                  <Icon name="Check" className="mr-2 h-4 w-4" />
-                  Создать конфиг
+                  Создать
                 </Button>
                 <Button
                   onClick={() => setShowNewConfigDialog(false)}
                   variant="outline"
-                  className="border-slate-700 hover:bg-slate-800"
                 >
                   Отмена
                 </Button>
