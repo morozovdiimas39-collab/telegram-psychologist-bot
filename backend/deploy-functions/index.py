@@ -61,19 +61,34 @@ def handler(event: dict, context) -> dict:
         if not github_repo or not github_token:
             raise ValueError("github_repo и GITHUB_TOKEN обязательны для чтения функций")
         
-        logs.append("📦 Читаю функции из GitHub репозитория...")
+        logs.append(f"📦 Читаю функции из GitHub репозитория: {github_repo}")
         
         headers_gh = {
-            'Authorization': f'Bearer {github_token}',
+            'Authorization': f'token {github_token}',
             'Accept': 'application/vnd.github.v3+json'
         }
         
+        # Проверяем доступ к репозиторию
+        repo_url = f'https://api.github.com/repos/{github_repo}'
+        repo_resp = requests.get(repo_url, headers=headers_gh, timeout=10)
+        
+        if repo_resp.status_code != 200:
+            logs.append(f"❌ Репозиторий недоступен: {repo_resp.status_code}")
+            logs.append(f"Ответ: {repo_resp.text[:300]}")
+            raise ValueError(f"Репозиторий {github_repo} недоступен. Проверь имя и права токена.")
+        
+        repo_data = repo_resp.json()
+        default_branch = repo_data.get('default_branch', 'main')
+        logs.append(f"✓ Репозиторий найден, ветка: {default_branch}")
+        
         # Получаем список папок в /backend
-        backend_url = f'https://api.github.com/repos/{github_repo}/contents/backend'
+        backend_url = f'https://api.github.com/repos/{github_repo}/contents/backend?ref={default_branch}'
         backend_resp = requests.get(backend_url, headers=headers_gh, timeout=10)
         
         if backend_resp.status_code != 200:
-            raise ValueError(f"Не удалось прочитать /backend: {backend_resp.text[:200]}")
+            logs.append(f"❌ Папка /backend не найдена в ветке {default_branch}")
+            logs.append(f"Ответ: {backend_resp.text[:300]}")
+            raise ValueError(f"Папка /backend не найдена. Убедись что код залит в GitHub.")
         
         backend_items = backend_resp.json()
         function_dirs = []
