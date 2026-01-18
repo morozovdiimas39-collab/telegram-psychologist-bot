@@ -119,8 +119,8 @@ def handler(event: dict, context) -> dict:
         vm_id = vm_record['id']
         conn.commit()
         
-        # Получаем токен Yandex Cloud
-        yc_token = os.environ['YANDEX_CLOUD_TOKEN']
+        # Получаем IAM токен из сервисного аккаунта функции
+        iam_token = get_iam_token(context)
         folder_id = os.environ.get('YANDEX_FOLDER_ID', 'b1g8dn6bs6vq7v3jqfta')
         
         # Генерируем SSH ключ (публичный)
@@ -158,7 +158,7 @@ def handler(event: dict, context) -> dict:
         }
         
         headers = {
-            'Authorization': f'Bearer {yc_token}',
+            'Authorization': f'Bearer {iam_token}',
             'Content-Type': 'application/json'
         }
         
@@ -295,6 +295,14 @@ def generate_ssh_key_pair():
     """Генерирует SSH ключ (в реальности используем существующий из секретов)"""
     # В production нужно генерировать новую пару, но для простоты используем готовый
     return os.environ.get('VM_SSH_PUBLIC_KEY', 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...')
+
+
+def get_iam_token(context) -> str:
+    """Получить IAM токен из сервисного аккаунта функции"""
+    if hasattr(context, 'token') and context.token:
+        return context.token['access_token']
+    
+    return os.environ.get('YANDEX_CLOUD_TOKEN', '')
 
 
 def get_cloud_init_script(ssh_pub_key: str) -> str:
