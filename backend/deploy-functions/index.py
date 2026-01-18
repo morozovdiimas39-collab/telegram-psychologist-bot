@@ -116,6 +116,16 @@ def handler(event: dict, context) -> dict:
         else:
             logs.append(f"📦 Деплою все {len(function_dirs)} функций за раз")
         
+        # Получаем список ВСЕХ существующих функций один раз
+        logs.append("📋 Проверяю существующие функции...")
+        list_resp = requests.get(
+            f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
+            headers=headers,
+            timeout=10
+        )
+        existing_functions = {f['name']: f['id'] for f in list_resp.json().get('functions', [])}
+        logs.append(f"  Найдено в Yandex Cloud: {len(existing_functions)} функций")
+        
         deployed_functions = []
         function_urls = {}
         
@@ -155,29 +165,20 @@ def handler(event: dict, context) -> dict:
             
             zip_content = zip_buffer.getvalue()
             
-            # Создаём функцию в Yandex Cloud
-            function_payload = {
-                "folderId": folder_id,
-                "name": func_name,
-                "description": f"Function {func_name} from poehali.dev"
-            }
+            # Проверяем существует ли функция (используем готовый словарь)
+            function_id = existing_functions.get(func_name)
             
-            # Сначала проверяем, существует ли функция
-            list_resp = requests.get(
-                f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
-                headers=headers,
-                timeout=10
-            )
-            functions = list_resp.json().get('functions', [])
-            function_id = None
-            for f in functions:
-                if f['name'] == func_name:
-                    function_id = f['id']
-                    logs.append(f"  ✓ Функция {func_name} уже существует")
-                    break
-            
-            # Если не существует - создаём
-            if not function_id:
+            if function_id:
+                logs.append(f"  ✓ Обновляю существующую функцию")
+            else:
+                # Создаём новую функцию
+                logs.append(f"  + Создаю новую функцию")
+                function_payload = {
+                    "folderId": folder_id,
+                    "name": func_name,
+                    "description": f"Function {func_name} from poehali.dev"
+                }
+                
                 create_func_resp = requests.post(
                     "https://serverless-functions.api.cloud.yandex.net/functions/v1/functions",
                     headers={**headers, "Content-Type": "application/json"},
@@ -187,28 +188,35 @@ def handler(event: dict, context) -> dict:
                 
                 if create_func_resp.status_code in [200, 201]:
                     resp_data = create_func_resp.json()
-                    # Yandex Cloud возвращает operation, ждём её завершения
                     operation_id = resp_data.get('id')
                     if operation_id:
                         time.sleep(2)
-                        # Получаем список функций снова
-                        list_resp = requests.get(
+                        # Получаем ID созданной функции
+                        get_resp = requests.get(
                             f"https://serverless-functions.api.cloud.yandex.net/functions/v1/functions?folderId={folder_id}",
                             headers=headers,
                             timeout=10
                         )
-                        functions = list_resp.json().get('functions', [])
-                        for f in functions:
+                        for f in get_resp.json().get('functions', []):
                             if f['name'] == func_name:
                                 function_id = f['id']
                                 break
-                    logs.append(f"  ✓ Создана новая функция")
+                    logs.append(f"  ✓ Функция создана")
                 else:
-                    logs.append(f"❌ Ошибка создания {func_name}: {create_func_resp.text[:200]}")
+                    error_msg = create_func_resp.text[:300]
+                    logs.append(f"  ❌ Ошибка создания: {error_msg}")
+                    
+                    # Если квота закончилась - прерываем
+                    if "Quota limit" in error_msg:
+                        logs.append("")
+                        logs.append("⚠️ КВОТА YANDEX CLOUD ИСЧЕРПАНА!")
+                        logs.append("Решение: удали ненужные функции в консоли Yandex Cloud")
+                        logs.append("Или запроси увеличение квоты в поддержке")
+                        break
                     continue
             
             if not function_id:
-                logs.append(f"❌ Не удалось получить ID функции {func_name}")
+                logs.append(f"  ❌ Не удалось получить ID функции")
                 continue
             
             # Создаём версию функции с МАКСИМАЛЬНЫМ timeout
