@@ -24,6 +24,7 @@ interface DeployConfig {
   domain: string;
   github_repo: string;
   vm_instance_id: number | null;
+  vm_ip?: string;
   created_at: string;
   updated_at: string;
 }
@@ -33,7 +34,9 @@ export default function Deploy() {
   const [vms, setVms] = useState<VMInstance[]>([]);
   const [configs, setConfigs] = useState<DeployConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isAddingVM, setIsAddingVM] = useState(false);
+  const [isDeploying, setIsDeploying] = useState<string | null>(null);
+  const [newConfig, setNewConfig] = useState({ name: '', domain: '', repo: '' });
+  const [showNewConfigForm, setShowNewConfigForm] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -51,7 +54,7 @@ export default function Deploy() {
     try {
       const resp = await fetch(API_ENDPOINTS.vmList);
       const data = await resp.json();
-      setVms(data.filter((vm: VMInstance) => vm.status !== 'error'));
+      setVms(data.filter((vm: VMInstance) => vm.status === 'ready'));
     } catch (error: any) {
       console.error('Ошибка загрузки VM:', error);
     }
@@ -67,30 +70,25 @@ export default function Deploy() {
     }
   };
 
-  const handleAddMyServer = async () => {
-    setIsAddingVM(true);
+  const handleDeploy = async (configName: string) => {
+    setIsDeploying(configName);
     try {
-      const resp = await fetch(API_ENDPOINTS.vmCreate, {
+      const resp = await fetch(API_ENDPOINTS.deploy, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: "my-server",
-          existing_vm: true
-        })
+        body: JSON.stringify({ config_name: configName, type: 'all' })
       });
 
       const data = await resp.json();
 
       if (!resp.ok) {
-        throw new Error(data.error || "Ошибка добавления сервера");
+        throw new Error(data.error || "Ошибка деплоя");
       }
 
       toast({
-        title: "✅ Сервер добавлен!",
-        description: `IP: ${data.ip_address} готов к деплою`
+        title: "✅ Деплой запущен!",
+        description: data.logs ? data.logs.join('\n') : "Проект разворачивается на сервере"
       });
-
-      loadVMs();
     } catch (error: any) {
       toast({
         title: "Ошибка",
@@ -98,7 +96,90 @@ export default function Deploy() {
         variant: "destructive"
       });
     } finally {
-      setIsAddingVM(false);
+      setIsDeploying(null);
+    }
+  };
+
+  const handleCreateConfig = async () => {
+    if (!newConfig.name || !newConfig.domain || !newConfig.repo) {
+      toast({
+        title: "Ошибка",
+        description: "Заполни все поля",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    if (vms.length === 0) {
+      toast({
+        title: "Ошибка",
+        description: "Нет доступных серверов",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const resp = await fetch(API_ENDPOINTS.deployConfig, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newConfig.name,
+          domain: newConfig.domain,
+          github_repo: newConfig.repo,
+          vm_instance_id: vms[0].id
+        })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка создания конфига");
+      }
+
+      toast({
+        title: "✅ Конфиг создан!",
+        description: `Теперь можно задеплоить ${newConfig.domain}`
+      });
+
+      setNewConfig({ name: '', domain: '', repo: '' });
+      setShowNewConfigForm(false);
+      loadConfigs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeleteConfig = async (name: string) => {
+    if (!confirm(`Удалить конфиг ${name}?`)) return;
+
+    try {
+      const resp = await fetch(`${API_ENDPOINTS.deployConfig}?name=${name}`, {
+        method: "DELETE"
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка удаления");
+      }
+
+      toast({
+        title: "✅ Удалено",
+        description: `Конфиг ${name} удалён`
+      });
+
+      loadConfigs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
     }
   };
 
@@ -110,153 +191,148 @@ export default function Deploy() {
     );
   }
 
-  const hasVM = vms.length > 0 && vms[0].status === 'ready';
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 p-4">
-      <div className="container mx-auto max-w-4xl py-8 space-y-8">
-        <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold text-white">🚀 Деплой на свой сервер</h1>
-          <p className="text-slate-300 text-lg">
-            Просто и быстро
-          </p>
+      <div className="container mx-auto max-w-5xl py-8 space-y-6">
+        <div className="text-center space-y-2">
+          <h1 className="text-4xl font-bold text-white">🚀 Деплой проектов</h1>
+          <p className="text-slate-300">Управляй серверами и деплоем</p>
         </div>
 
-        {!hasVM ? (
+        {vms.length > 0 && (
           <Card className="bg-white/10 backdrop-blur border-white/20">
             <CardHeader>
-              <CardTitle className="text-white text-2xl">Шаг 1: Добавь свой сервер</CardTitle>
-              <CardDescription className="text-slate-300 text-base">
-                У тебя уже есть настроенный сервер. Просто добавь его в систему.
-              </CardDescription>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Icon name="Server" className="h-5 w-5 text-green-400" />
+                Серверы
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-6">
-              <div className="bg-slate-900/50 rounded-lg p-6 border border-green-500/30">
-                <div className="flex items-start gap-4">
-                  <div className="text-4xl">✅</div>
-                  <div className="flex-1">
-                    <h3 className="text-white font-semibold text-lg mb-2">Твой сервер готов</h3>
-                    <ul className="space-y-2 text-slate-300">
-                      <li className="flex items-center gap-2">
-                        <Icon name="Check" className="h-4 w-4 text-green-400" />
-                        <span>IP адрес сохранён в секретах</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Icon name="Check" className="h-4 w-4 text-green-400" />
-                        <span>SSH ключ настроен</span>
-                      </li>
-                      <li className="flex items-center gap-2">
-                        <Icon name="Check" className="h-4 w-4 text-green-400" />
-                        <span>Nginx, Bun, SSL установлены</span>
-                      </li>
-                    </ul>
+            <CardContent>
+              <div className="grid gap-3">
+                {vms.map(vm => (
+                  <div key={vm.id} className="bg-slate-900/50 rounded-lg p-4 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                      <Icon name="CheckCircle" className="h-5 w-5 text-green-400" />
+                      <div>
+                        <div className="text-white font-semibold">{vm.name}</div>
+                        <div className="text-slate-400 text-sm font-mono">{vm.ip_address}</div>
+                      </div>
+                    </div>
+                    <div className="text-green-400 text-sm">Готов</div>
                   </div>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleAddMyServer}
-                disabled={isAddingVM}
-                size="lg"
-                className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700 text-lg py-6"
-              >
-                {isAddingVM ? (
-                  <>
-                    <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
-                    Добавляю сервер...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="Plus" className="mr-2 h-5 w-5" />
-                    Добавить мой сервер
-                  </>
-                )}
-              </Button>
-
-              <div className="text-xs text-slate-400 text-center">
-                Это займёт 1 секунду. Сервер будет готов к деплою сразу.
+                ))}
               </div>
             </CardContent>
           </Card>
-        ) : (
-          <div className="space-y-6">
-            <Card className="bg-white/10 backdrop-blur border-white/20">
-              <CardHeader>
-                <CardTitle className="text-white flex items-center gap-2">
-                  <Icon name="Server" className="h-5 w-5 text-green-400" />
-                  Твой сервер
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="bg-slate-900/50 rounded-lg p-4 space-y-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Название:</span>
-                    <span className="text-white font-semibold">{vms[0].name}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">IP адрес:</span>
-                    <span className="text-white font-mono">{vms[0].ip_address}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-slate-400">Статус:</span>
-                    <span className="text-green-400 flex items-center gap-2">
-                      <Icon name="CheckCircle" className="h-4 w-4" />
-                      Готов к деплою
-                    </span>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-white/10 backdrop-blur border-white/20">
-              <CardHeader>
-                <CardTitle className="text-white">Что дальше?</CardTitle>
-                <CardDescription className="text-slate-300">
-                  Выбери что хочешь сделать
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="grid gap-4">
-                  <div className="bg-slate-900/50 rounded-lg p-4 border border-blue-500/30">
-                    <div className="flex items-start gap-4">
-                      <div className="text-3xl">📦</div>
-                      <div className="flex-1">
-                        <h3 className="text-white font-semibold mb-1">Деплой проекта</h3>
-                        <p className="text-slate-400 text-sm mb-3">
-                          Загрузи свой проект на сервер с автоматической настройкой
-                        </p>
-                        <Button className="bg-blue-600 hover:bg-blue-700">
-                          <Icon name="Upload" className="mr-2 h-4 w-4" />
-                          Задеплоить проект
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="bg-slate-900/50 rounded-lg p-4 border border-purple-500/30">
-                    <div className="flex items-start gap-4">
-                      <div className="text-3xl">🌐</div>
-                      <div className="flex-1">
-                        <h3 className="text-white font-semibold mb-1">Настроить домен</h3>
-                        <p className="text-slate-400 text-sm mb-3">
-                          Привяжи свой домен и получи SSL сертификат
-                        </p>
-                        <Button variant="outline" className="border-purple-500 text-purple-400">
-                          <Icon name="Globe" className="mr-2 h-4 w-4" />
-                          Добавить домен
-                        </Button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="text-xs text-slate-400 border-t border-white/10 pt-4">
-                  <p className="mb-2"><strong>💡 Совет:</strong> Начни с деплоя проекта. Домен можно настроить потом.</p>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
         )}
+
+        <Card className="bg-white/10 backdrop-blur border-white/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-white">Конфиги деплоя</CardTitle>
+              <Button 
+                onClick={() => setShowNewConfigForm(!showNewConfigForm)}
+                size="sm"
+                className="bg-blue-600 hover:bg-blue-700"
+              >
+                <Icon name="Plus" className="mr-2 h-4 w-4" />
+                Новый конфиг
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {showNewConfigForm && (
+              <div className="bg-slate-900/50 rounded-lg p-4 space-y-3 border border-blue-500/30">
+                <div className="grid gap-3">
+                  <div>
+                    <Label className="text-slate-300">Название</Label>
+                    <Input
+                      value={newConfig.name}
+                      onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
+                      placeholder="production"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300">Домен</Label>
+                    <Input
+                      value={newConfig.domain}
+                      onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
+                      placeholder="example.com"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <Label className="text-slate-300">GitHub репозиторий</Label>
+                    <Input
+                      value={newConfig.repo}
+                      onChange={(e) => setNewConfig({...newConfig, repo: e.target.value})}
+                      placeholder="username/repo"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button onClick={handleCreateConfig} className="bg-green-600 hover:bg-green-700">
+                    <Icon name="Check" className="mr-2 h-4 w-4" />
+                    Создать
+                  </Button>
+                  <Button onClick={() => setShowNewConfigForm(false)} variant="outline" className="border-slate-600">
+                    Отмена
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {configs.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                Нет конфигов. Создай первый конфиг для деплоя.
+              </div>
+            ) : (
+              <div className="grid gap-3">
+                {configs.map(config => (
+                  <div key={config.id} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
+                    <div className="flex items-start justify-between mb-3">
+                      <div className="flex-1">
+                        <div className="text-white font-semibold text-lg mb-1">{config.domain}</div>
+                        <div className="text-slate-400 text-sm mb-2">{config.github_repo}</div>
+                        <div className="flex gap-4 text-xs text-slate-500">
+                          <span>Конфиг: {config.name}</span>
+                          {config.vm_ip && <span>IP: {config.vm_ip}</span>}
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => handleDeleteConfig(config.name)}
+                        size="sm"
+                        variant="ghost"
+                        className="text-red-400 hover:text-red-300 hover:bg-red-950/50"
+                      >
+                        <Icon name="Trash2" className="h-4 w-4" />
+                      </Button>
+                    </div>
+                    <Button
+                      onClick={() => handleDeploy(config.name)}
+                      disabled={isDeploying === config.name}
+                      className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+                    >
+                      {isDeploying === config.name ? (
+                        <>
+                          <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                          Деплою...
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="Rocket" className="mr-2 h-4 w-4" />
+                          Задеплоить
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
