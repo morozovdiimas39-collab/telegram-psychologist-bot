@@ -28,6 +28,7 @@ def handler(event: dict, context) -> dict:
         github_repo = body.get('github_repo')
         batch_size = body.get('batch_size', 5)  # Деплоим по 5 функций за раз
         offset = body.get('offset', 0)  # С какой функции начать
+        function_filter = body.get('function_filter')  # Деплоить только одну функцию
         
         oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
         github_token = os.environ.get('GITHUB_TOKEN')
@@ -102,6 +103,11 @@ def handler(event: dict, context) -> dict:
                 index_check = requests.get(index_url, headers=headers_gh, timeout=5)
                 if index_check.status_code == 200:
                     all_function_dirs.append(item['name'])
+        
+        # Фильтр по имени функции (для bootstrap)
+        if function_filter:
+            all_function_dirs = [f for f in all_function_dirs if f == function_filter]
+            logs.append(f"🎯 Фильтр: деплою только {function_filter}")
         
         total_functions = len(all_function_dirs)
         logs.append(f"✅ Найдено функций: {total_functions}")

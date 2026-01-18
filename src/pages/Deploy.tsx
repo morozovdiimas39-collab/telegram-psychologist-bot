@@ -10,8 +10,74 @@ import { API_ENDPOINTS } from "@/lib/api";
 const Deploy = () => {
   const [githubUrl, setGithubUrl] = useState("");
   const [isMigrating, setIsMigrating] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
+  const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const { toast } = useToast();
+
+  const handleBootstrapDeployFunction = async () => {
+    if (!githubUrl) {
+      toast({
+        title: "Ошибка",
+        description: "Укажи GitHub репозиторий",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsBootstrapping(true);
+    setDeployLog(["🔧 Переношу deploy-functions в твой Yandex Cloud..."]);
+
+    try {
+      const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          secrets: [],
+          github_repo: githubUrl,
+          offset: 0,
+          batch_size: 1,
+          function_filter: "deploy-functions"
+        })
+      });
+
+      const deployData = await deployResp.json();
+
+      if (!deployResp.ok) {
+        throw new Error(deployData.error || "Ошибка деплоя");
+      }
+
+      setDeployLog(prev => [...prev, ...deployData.logs]);
+
+      if (deployData.deployed && deployData.deployed.length > 0) {
+        setDeployLog(prev => [
+          ...prev,
+          "",
+          "✅ deploy-functions перенесена в твой Yandex Cloud!",
+          "✅ Timeout увеличен до 600 сек",
+          "",
+          "👉 Теперь можешь мигрировать остальные функции"
+        ]);
+        setBootstrapComplete(true);
+        toast({
+          title: "🎉 Готово!",
+          description: "Теперь можно мигрировать все функции"
+        });
+      } else {
+        throw new Error("Функция не задеплоилась");
+      }
+
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsBootstrapping(false);
+    }
+  };
 
   const handleMigrateToYandexCloud = async () => {
     if (!githubUrl) {
@@ -102,11 +168,66 @@ const Deploy = () => {
           </p>
         </div>
 
-        <Card className="bg-white/10 backdrop-blur border-white/20">
+        <Card className="bg-red-500/10 backdrop-blur border-red-500/30">
+          <CardHeader>
+            <CardTitle className="text-white flex items-center gap-2 text-base">
+              <Icon name="AlertCircle" className="h-5 w-5 text-red-400" />
+              ШАГ 1: Перенос deploy-functions (обязательно!)
+            </CardTitle>
+            <CardDescription className="text-slate-300 text-sm">
+              Сначала нужно перенести саму функцию деплоя в твой Yandex Cloud, иначе она упадёт по таймауту 30 сек
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="github-repo-bootstrap" className="text-white text-sm">
+                GitHub репозиторий <span className="text-red-400">*</span>
+              </Label>
+              <Input
+                id="github-repo-bootstrap"
+                placeholder="username/repository"
+                value={githubUrl}
+                onChange={(e) => setGithubUrl(e.target.value)}
+                disabled={isBootstrapping || bootstrapComplete}
+                className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
+              />
+            </div>
+
+            <Button
+              onClick={handleBootstrapDeployFunction}
+              disabled={isBootstrapping || !githubUrl || bootstrapComplete}
+              size="lg"
+              className="w-full bg-red-600 hover:bg-red-700 text-base h-12"
+            >
+              {isBootstrapping ? (
+                <>
+                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                  Переношу deploy-functions...
+                </>
+              ) : bootstrapComplete ? (
+                <>
+                  <Icon name="CheckCircle2" className="mr-2 h-4 w-4" />
+                  Готово! Переходи к Шагу 2
+                </>
+              ) : (
+                <>
+                  <Icon name="Upload" className="mr-2 h-4 w-4" />
+                  Перенести deploy-functions
+                </>
+              )}
+            </Button>
+
+            <p className="text-xs text-slate-400">
+              ⚠️ Без этого шага миграция всех функций упадёт по таймауту на poehali.dev (30 сек)
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card className={`bg-white/10 backdrop-blur border-white/20 ${!bootstrapComplete ? 'opacity-50' : ''}`}>
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
               <Icon name="Zap" className="h-6 w-6 text-yellow-400" />
-              Автоматическая миграция
+              ШАГ 2: Миграция всех функций
             </CardTitle>
             <CardDescription className="text-slate-300">
               Получи полный контроль над функциями: timeout 600 сек вместо 30, неограниченные вызовы
@@ -145,7 +266,7 @@ const Deploy = () => {
 
             <Button
               onClick={handleMigrateToYandexCloud}
-              disabled={isMigrating || !githubUrl}
+              disabled={isMigrating || !githubUrl || !bootstrapComplete}
               size="lg"
               className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg h-14"
             >
@@ -154,13 +275,24 @@ const Deploy = () => {
                   <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
                   Миграция в процессе...
                 </>
+              ) : !bootstrapComplete ? (
+                <>
+                  <Icon name="Lock" className="mr-2 h-5 w-5" />
+                  Сначала выполни Шаг 1
+                </>
               ) : (
                 <>
                   <Icon name="Rocket" className="mr-2 h-5 w-5" />
-                  Мигрировать на мой Yandex Cloud
+                  Мигрировать все функции
                 </>
               )}
             </Button>
+
+            {!bootstrapComplete && (
+              <p className="text-xs text-yellow-300 text-center">
+                ⚠️ Кнопка разблокируется после Шага 1
+              </p>
+            )}
 
             <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-2">
               <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
