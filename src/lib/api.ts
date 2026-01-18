@@ -5,7 +5,6 @@ export const API_ENDPOINTS = {
   quizApi: func2url['quiz-api'],
   migrate: func2url['migrate'],
   deployFunctions: func2url['deploy-functions'],
-  updateFunc2url: func2url['update-func2url'],
   ycCreate: func2url['yc-create'],
   ycSetup: func2url['yc-setup'],
   deploy: func2url['deploy'],

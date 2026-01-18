@@ -25,8 +25,10 @@ def handler(event: dict, context) -> dict:
     try:
         body = json.loads(event.get('body', '{}'))
         secrets = body.get('secrets', [])
+        github_repo = body.get('github_repo')
         
         oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
+        github_token = os.environ.get('GITHUB_TOKEN')
         logs = []
         
         # Получаем IAM токен
@@ -207,6 +209,65 @@ def handler(event: dict, context) -> dict:
         
         logs.append("")
         logs.append(f"🎉 Готово! Задеплоено функций: {len(deployed_functions)}")
+        
+        # Обновляем func2url.json в GitHub если указан репозиторий
+        if github_repo and github_token and function_urls:
+            logs.append("")
+            logs.append("🔄 Обновляю func2url.json в GitHub...")
+            
+            try:
+                headers_gh = {
+                    'Authorization': f'Bearer {github_token}',
+                    'Accept': 'application/vnd.github.v3+json'
+                }
+                
+                file_path = 'backend/func2url.json'
+                url_gh = f'https://api.github.com/repos/{github_repo}/contents/{file_path}'
+                
+                # Читаем текущий файл
+                get_resp = requests.get(url_gh, headers=headers_gh, timeout=10)
+                
+                current_func2url = {}
+                file_sha = None
+                
+                if get_resp.status_code == 200:
+                    file_data = get_resp.json()
+                    file_sha = file_data['sha']
+                    content = base64.b64decode(file_data['content']).decode('utf-8')
+                    current_func2url = json.loads(content)
+                
+                # Обновляем URL
+                updated_count = 0
+                for func_name, new_url in function_urls.items():
+                    if current_func2url.get(func_name) != new_url:
+                        current_func2url[func_name] = new_url
+                        updated_count += 1
+                
+                if updated_count > 0:
+                    # Сохраняем
+                    new_content = json.dumps(current_func2url, indent=2, ensure_ascii=False)
+                    encoded_content = base64.b64encode(new_content.encode('utf-8')).decode('utf-8')
+                    
+                    commit_data = {
+                        'message': f'chore: update func2url.json with {updated_count} new URLs from Yandex Cloud',
+                        'content': encoded_content,
+                        'branch': 'main'
+                    }
+                    
+                    if file_sha:
+                        commit_data['sha'] = file_sha
+                    
+                    put_resp = requests.put(url_gh, headers=headers_gh, json=commit_data, timeout=15)
+                    
+                    if put_resp.status_code in [200, 201]:
+                        logs.append(f"✅ func2url.json обновлён! Изменено URL: {updated_count}")
+                    else:
+                        logs.append(f"⚠️ Ошибка обновления GitHub: {put_resp.json().get('message', 'Unknown')}")
+                else:
+                    logs.append("✓ func2url.json не изменился")
+                    
+            except Exception as gh_error:
+                logs.append(f"⚠️ Ошибка обновления GitHub: {str(gh_error)}")
         
         return {
             'statusCode': 200,

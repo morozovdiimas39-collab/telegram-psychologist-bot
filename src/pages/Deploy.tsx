@@ -27,11 +27,14 @@ const Deploy = () => {
     setDeployLog(["🚀 Начинаю полную миграцию на Yandex Cloud..."]);
 
     try {
-      setDeployLog(prev => [...prev, "", "📦 Шаг 1/3: Деплою backend функции в твой Yandex Cloud..."]);
+      setDeployLog(prev => [...prev, "", "📦 Шаг 1/2: Деплою backend функции + обновляю func2url.json..."]);
       const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ secrets: [] })
+        body: JSON.stringify({ 
+          secrets: [],
+          github_repo: githubUrl
+        })
       });
 
       const deployData = await deployResp.json();
@@ -46,24 +49,6 @@ const Deploy = () => {
         throw new Error("Не получены URL функций");
       }
 
-      setDeployLog(prev => [...prev, "", "🔄 Шаг 2/3: Обновляю func2url.json в GitHub..."]);
-      const updateResp = await fetch(API_ENDPOINTS.updateFunc2url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          function_urls: deployData.function_urls,
-          github_repo: githubUrl
-        })
-      });
-
-      const updateData = await updateResp.json();
-
-      if (!updateResp.ok) {
-        throw new Error(updateData.error || "Ошибка обновления func2url.json");
-      }
-
-      setDeployLog(prev => [...prev, ...updateData.logs]);
-
       setDeployLog(prev => [
         ...prev,
         "",
@@ -73,8 +58,7 @@ const Deploy = () => {
         "1. Перезапусти фронтенд - он подхватит новые URL из func2url.json",
         "2. Все функции теперь работают в твоём Yandex Cloud с timeout 600 сек!",
         "",
-        `✨ Задеплоено функций: ${deployData.deployed?.length || 0}`,
-        `✨ Обновлено URL: ${updateData.updated || 0}`
+        `✨ Задеплоено функций: ${deployData.deployed?.length || 0}`
       ]);
 
       toast({
