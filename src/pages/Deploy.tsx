@@ -356,104 +356,106 @@ const Deploy = () => {
       </div>
 
       {/* Диалог создания конфига */}
-      <Dialog open={showNewConfigDialog} onOpenChange={setShowNewConfigDialog}>
-        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Новая конфигурация</DialogTitle>
-            <DialogDescription className="text-slate-400">
-              Создай конфиг для деплоя на VM
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 mt-4">
-            <div className="grid md:grid-cols-2 gap-4">
+      {showNewConfigDialog && (
+        <Dialog open={showNewConfigDialog} onOpenChange={setShowNewConfigDialog}>
+          <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle>Новая конфигурация</DialogTitle>
+              <DialogDescription className="text-slate-400">
+                Создай конфиг для деплоя на VM
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 mt-4">
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="config-name">Название <span className="text-red-400">*</span></Label>
+                  <Input
+                    id="config-name"
+                    placeholder="production"
+                    value={newConfig.name}
+                    onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
+                    className="bg-slate-800 border-slate-700"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="config-domain">Домен <span className="text-red-400">*</span></Label>
+                  <Input
+                    id="config-domain"
+                    placeholder="mysite.ru"
+                    value={newConfig.domain}
+                    onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
+                    className="bg-slate-800 border-slate-700"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label htmlFor="config-name">Название <span className="text-red-400">*</span></Label>
+                <Label htmlFor="config-repo">GitHub репозиторий <span className="text-red-400">*</span></Label>
                 <Input
-                  id="config-name"
-                  placeholder="production"
-                  value={newConfig.name}
-                  onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
+                  id="config-repo"
+                  placeholder="username/repo-name"
+                  value={newConfig.github_repo}
+                  onChange={(e) => setNewConfig({...newConfig, github_repo: e.target.value})}
                   className="bg-slate-800 border-slate-700"
                 />
               </div>
+
+              <div className="grid md:grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="config-ip">IP сервера <span className="text-red-400">*</span></Label>
+                  <Input
+                    id="config-ip"
+                    placeholder="158.160.115.239"
+                    value={newConfig.vm_ip}
+                    onChange={(e) => setNewConfig({...newConfig, vm_ip: e.target.value})}
+                    className="bg-slate-800 border-slate-700"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="config-user">Пользователь</Label>
+                  <Input
+                    id="config-user"
+                    placeholder="ubuntu"
+                    value={newConfig.vm_user}
+                    onChange={(e) => setNewConfig({...newConfig, vm_user: e.target.value})}
+                    className="bg-slate-800 border-slate-700"
+                  />
+                </div>
+              </div>
+
               <div className="space-y-2">
-                <Label htmlFor="config-domain">Домен <span className="text-red-400">*</span></Label>
-                <Input
-                  id="config-domain"
-                  placeholder="mysite.ru"
-                  value={newConfig.domain}
-                  onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
+                <Label htmlFor="config-ssh">SSH ключ <span className="text-red-400">*</span></Label>
+                <Textarea
+                  id="config-ssh"
+                  placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                  value={newConfig.vm_ssh_key}
+                  onChange={(e) => setNewConfig({...newConfig, vm_ssh_key: e.target.value})}
+                  className="bg-slate-800 border-slate-700 font-mono text-xs"
+                  rows={6}
                 />
+                <p className="text-xs text-slate-500">Приватный SSH ключ для доступа к VM</p>
+              </div>
+
+              <div className="flex gap-3 pt-4">
+                <Button
+                  onClick={handleCreateConfig}
+                  className="flex-1 bg-green-600 hover:bg-green-700"
+                >
+                  <Icon name="Check" className="mr-2 h-4 w-4" />
+                  Создать конфиг
+                </Button>
+                <Button
+                  onClick={() => setShowNewConfigDialog(false)}
+                  variant="outline"
+                  className="border-slate-700 hover:bg-slate-800"
+                >
+                  Отмена
+                </Button>
               </div>
             </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="config-repo">GitHub репозиторий <span className="text-red-400">*</span></Label>
-              <Input
-                id="config-repo"
-                placeholder="username/repo-name"
-                value={newConfig.github_repo}
-                onChange={(e) => setNewConfig({...newConfig, github_repo: e.target.value})}
-                className="bg-slate-800 border-slate-700"
-              />
-            </div>
-
-            <div className="grid md:grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="config-ip">IP сервера <span className="text-red-400">*</span></Label>
-                <Input
-                  id="config-ip"
-                  placeholder="158.160.115.239"
-                  value={newConfig.vm_ip}
-                  onChange={(e) => setNewConfig({...newConfig, vm_ip: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="config-user">Пользователь</Label>
-                <Input
-                  id="config-user"
-                  placeholder="ubuntu"
-                  value={newConfig.vm_user}
-                  onChange={(e) => setNewConfig({...newConfig, vm_user: e.target.value})}
-                  className="bg-slate-800 border-slate-700"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="config-ssh">SSH ключ <span className="text-red-400">*</span></Label>
-              <Textarea
-                id="config-ssh"
-                placeholder="-----BEGIN RSA PRIVATE KEY-----"
-                value={newConfig.vm_ssh_key}
-                onChange={(e) => setNewConfig({...newConfig, vm_ssh_key: e.target.value})}
-                className="bg-slate-800 border-slate-700 font-mono text-xs"
-                rows={6}
-              />
-              <p className="text-xs text-slate-500">Приватный SSH ключ для доступа к VM</p>
-            </div>
-
-            <div className="flex gap-3 pt-4">
-              <Button
-                onClick={handleCreateConfig}
-                className="flex-1 bg-green-600 hover:bg-green-700"
-              >
-                <Icon name="Check" className="mr-2 h-4 w-4" />
-                Создать конфиг
-              </Button>
-              <Button
-                onClick={() => setShowNewConfigDialog(false)}
-                variant="outline"
-                className="border-slate-700 hover:bg-slate-800"
-              >
-                Отмена
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };
