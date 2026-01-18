@@ -3,155 +3,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
 
 const Deploy = () => {
   const [githubUrl, setGithubUrl] = useState("");
-  const [projectName, setProjectName] = useState("");
-  const [domain, setDomain] = useState("");
-  const [isDeploying, setIsDeploying] = useState(false);
-  const [deployLog, setDeployLog] = useState<string[]>([]);
-  const [isCreatingVM, setIsCreatingVM] = useState(false);
-  const [vmIp, setVmIp] = useState("");
-  const [vmWebhook, setVmWebhook] = useState("");
-  const [vmSshKey, setVmSshKey] = useState("");
-  const [showVmSecrets, setShowVmSecrets] = useState(false);
-  const [isUpdatingVM, setIsUpdatingVM] = useState(false);
-  const [isRestartingVM, setIsRestartingVM] = useState(false);
   const [isMigrating, setIsMigrating] = useState(false);
+  const [deployLog, setDeployLog] = useState<string[]>([]);
   const { toast } = useToast();
-
-  const handleCreateVM = async () => {
-    setIsCreatingVM(true);
-    setDeployLog(["🚀 Создаю VM в Yandex Cloud..."]);
-
-    try {
-      const response = await fetch(API_ENDPOINTS.ycCreate, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-
-      const data = await response.json();
-
-      if (response.ok || response.status === 202) {
-        setDeployLog(prev => [...prev, ...data.logs]);
-        
-        if (data.ip && data.webhook) {
-          setVmIp(data.ip);
-          setVmWebhook(data.webhook);
-          setShowVmSecrets(true);
-          
-          setDeployLog(prev => [
-            ...prev,
-            "",
-            "✅ VM готова!",
-            `📋 IP адрес: ${data.ip}`,
-            `📋 Webhook: ${data.webhook}`,
-            "",
-            "💡 Добавь секреты в проект:",
-            `VM_IP_ADDRESS = ${data.ip}`,
-            `VM_WEBHOOK_URL = ${data.webhook}`
-          ]);
-          
-          toast({
-            title: "✅ VM создана!",
-            description: "Добавь секреты VM_IP_ADDRESS и VM_WEBHOOK_URL"
-          });
-        } else {
-          toast({
-            title: "⏳ VM создаётся",
-            description: "Повтори запрос через минуту"
-          });
-        }
-      } else {
-        throw new Error(data.error || "Ошибка создания VM");
-      }
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsCreatingVM(false);
-    }
-  };
-
-  const handleUpdateVM = async () => {
-    setIsUpdatingVM(true);
-    setDeployLog(["🔄 Обновляю скрипт деплоя на VM..."]);
-
-    try {
-      const response = await fetch(API_ENDPOINTS.ycSetup, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setDeployLog(prev => [...prev, ...data.logs]);
-        toast({
-          title: "✅ VM обновлена!",
-          description: "Скрипт деплоя с поддержкой БД и функций установлен"
-        });
-      } else {
-        throw new Error(data.error || "Ошибка обновления VM");
-      }
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsUpdatingVM(false);
-    }
-  };
-
-  const handleRestartVM = async () => {
-    setIsRestartingVM(true);
-    setDeployLog(["🔄 Перезагружаю VM..."]);
-
-    try {
-      const response = await fetch(API_ENDPOINTS.setupWebhook, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" }
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setDeployLog(prev => [...prev, ...data.logs]);
-        toast({
-          title: "✅ VM перезагружается!",
-          description: "Жди 2 минуты, webhook запустится автоматически"
-        });
-      } else {
-        throw new Error(data.error || "Ошибка перезагрузки VM");
-      }
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsRestartingVM(false);
-    }
-  };
 
   const handleMigrateToYandexCloud = async () => {
     if (!githubUrl) {
       toast({
         title: "Ошибка",
-        description: "Укажи GitHub URL (например: user/repo)",
+        description: "Укажи GitHub репозиторий (например: username/repo)",
         variant: "destructive"
       });
       return;
@@ -161,8 +27,7 @@ const Deploy = () => {
     setDeployLog(["🚀 Начинаю полную миграцию на Yandex Cloud..."]);
 
     try {
-      // Шаг 1: Деплоим функции в Yandex Cloud
-      setDeployLog(prev => [...prev, "", "📦 Шаг 1/3: Деплою backend функции..."]);
+      setDeployLog(prev => [...prev, "", "📦 Шаг 1/3: Деплою backend функции в твой Yandex Cloud..."]);
       const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -181,7 +46,6 @@ const Deploy = () => {
         throw new Error("Не получены URL функций");
       }
 
-      // Шаг 2: Обновляем func2url.json в GitHub
       setDeployLog(prev => [...prev, "", "🔄 Шаг 2/3: Обновляю func2url.json в GitHub..."]);
       const updateResp = await fetch(API_ENDPOINTS.updateFunc2url, {
         method: "POST",
@@ -200,14 +64,13 @@ const Deploy = () => {
 
       setDeployLog(prev => [...prev, ...updateData.logs]);
 
-      // Шаг 3: Информация о следующих шагах
       setDeployLog(prev => [
         ...prev,
         "",
         "✅ Миграция завершена!",
         "",
         "📋 Следующие шаги:",
-        "1. Перезапусти фронтенд (он подхватит новые URL из func2url.json)",
+        "1. Перезапусти фронтенд - он подхватит новые URL из func2url.json",
         "2. Все функции теперь работают в твоём Yandex Cloud с timeout 600 сек!",
         "",
         `✨ Задеплоено функций: ${deployData.deployed?.length || 0}`,
@@ -231,382 +94,132 @@ const Deploy = () => {
     }
   };
 
-  const handleDeployFunctions = async () => {
-    if (!githubUrl) {
-      toast({
-        title: "Ошибка",
-        description: "Укажи GitHub URL",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsDeploying(true);
-    setDeployLog(["🚀 Деплою облачные функции в Yandex Cloud..."]);
-
-    try {
-      const response = await fetch(API_ENDPOINTS.deployFunctions, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          github_url: githubUrl,
-          secrets: []
-        })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setDeployLog(prev => [...prev, ...data.logs]);
-        toast({
-          title: "✅ Функции задеплоены!",
-          description: `Задеплоено: ${data.deployed?.length || 0} функций`
-        });
-      } else {
-        throw new Error(data.error || "Ошибка деплоя функций");
-      }
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка деплоя",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsDeploying(false);
-    }
-  };
-
-  const handleDeploy = async () => {
-    if (!githubUrl || !projectName || !domain) {
-      toast({
-        title: "Ошибка",
-        description: "Заполните все обязательные поля",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsDeploying(true);
-    setDeployLog(["🚀 Начинаю деплой..."]);
-
-    try {
-      const response = await fetch(API_ENDPOINTS.deploy, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          githubUrl,
-          projectName,
-          domain
-        })
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        setDeployLog(prev => [...prev, ...data.logs]);
-        toast({
-          title: "✅ Успешно!",
-          description: `Проект развернут на ${domain}`
-        });
-      } else {
-        throw new Error(data.error || "Ошибка деплоя");
-      }
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка деплоя",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsDeploying(false);
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-background p-4">
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 p-4">
       <div className="container mx-auto max-w-4xl py-8 space-y-8">
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold">Деплой проектов из poehali.dev</h1>
-          <p className="text-muted-foreground">
-            Автоматический перенос проектов в Yandex Cloud
+          <h1 className="text-4xl font-bold text-white">Миграция на Yandex Cloud</h1>
+          <p className="text-slate-300 text-lg">
+            Перенеси все backend функции в свой облачный аккаунт за один клик
           </p>
-          
-          <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-purple-500/50">
-            <CardHeader>
-              <CardTitle className="text-2xl flex items-center gap-2">
-                <Icon name="Rocket" className="h-6 w-6" />
-                Миграция на Yandex Cloud
-              </CardTitle>
-              <CardDescription>
-                Перенеси все функции в свой Yandex Cloud за один клик. Получи timeout до 600 сек вместо 30!
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="github-migrate">GitHub репозиторий</Label>
-                <Input
-                  id="github-migrate"
-                  placeholder="username/repository"
-                  value={githubUrl}
-                  onChange={(e) => setGithubUrl(e.target.value)}
-                  disabled={isMigrating}
-                />
-              </div>
-              <Button
-                onClick={handleMigrateToYandexCloud}
-                disabled={isMigrating || !githubUrl}
-                size="lg"
-                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
-              >
-                {isMigrating ? (
-                  <>
-                    <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                    Миграция в процессе...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="Zap" className="mr-2 h-4 w-4" />
-                    Мигрировать на мой Yandex Cloud
-                  </>
-                )}
-              </Button>
-              <p className="text-xs text-muted-foreground">
-                ✅ Timeout 600 сек • ✅ Неограниченные вызовы • ✅ Полный контроль
-              </p>
-            </CardContent>
-          </Card>
-          
-          <div className="flex gap-4 justify-center flex-wrap">
-            <Button
-              onClick={handleCreateVM}
-              disabled={isCreatingVM}
-              size="lg"
-              variant="outline"
-            >
-              {isCreatingVM ? (
-                <>
-                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                  Создаю VM...
-                </>
-              ) : (
-                <>
-                  <Icon name="Server" className="mr-2 h-4 w-4" />
-                  Создать VM в Yandex Cloud
-                </>
-              )}
-            </Button>
-            
-            <Button
-              onClick={handleUpdateVM}
-              disabled={isUpdatingVM}
-              size="lg"
-            >
-              {isUpdatingVM ? (
-                <>
-                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                  Обновляю VM...
-                </>
-              ) : (
-                <>
-                  <Icon name="RefreshCw" className="mr-2 h-4 w-4" />
-                  Обновить скрипт деплоя
-                </>
-              )}
-            </Button>
-
-            <Button
-              onClick={() => window.open('https://functions.poehali.dev/a337e260-916c-4d7b-a103-b487dc06efe8', '_blank')}
-              size="lg"
-              variant="destructive"
-            >
-              <Icon name="Trash2" className="mr-2 h-4 w-4" />
-              1. Удалить VM
-            </Button>
-
-            <Button
-              onClick={() => window.open('https://functions.poehali.dev/2ad40487-21a0-4145-b7ac-6bc414b3b82b', '_blank')}
-              size="lg"
-              variant="default"
-            >
-              <Icon name="Plus" className="mr-2 h-4 w-4" />
-              2. Создать VM с SSH
-            </Button>
-
-            <Button
-              onClick={() => window.open('https://functions.poehali.dev/f3c33704-629c-4797-8313-284016acb44c', '_blank')}
-              size="lg"
-              variant="secondary"
-            >
-              <Icon name="Zap" className="mr-2 h-4 w-4" />
-              Запустить webhook
-            </Button>
-          </div>
         </div>
 
-        {showVmSecrets && (
-          <Card className="border-primary">
-            <CardHeader>
-              <CardTitle>Секреты VM</CardTitle>
-              <CardDescription>
-                Скопируйте эти значения — они понадобятся для деплоя
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="vm-ip">VM_IP_ADDRESS</Label>
-                <Input
-                  id="vm-ip"
-                  value={vmIp}
-                  readOnly
-                  className="font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vm-webhook">VM_WEBHOOK_URL</Label>
-                <Input
-                  id="vm-webhook"
-                  value={vmWebhook}
-                  readOnly
-                  className="font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="vm-ssh-key">VM_SSH_KEY</Label>
-                <textarea
-                  id="vm-ssh-key"
-                  value={vmSshKey}
-                  onChange={(e) => setVmSshKey(e.target.value)}
-                  placeholder="Вставь SSH ключ сюда после создания VM"
-                  className="w-full h-32 px-3 py-2 text-sm border rounded-md font-mono"
-                />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
+        <Card className="bg-white/10 backdrop-blur border-white/20">
           <CardHeader>
-            <CardTitle>Параметры деплоя</CardTitle>
-            <CardDescription>
-              Заполните данные для развертывания проекта
+            <CardTitle className="text-white flex items-center gap-2">
+              <Icon name="Zap" className="h-6 w-6 text-yellow-400" />
+              Автоматическая миграция
+            </CardTitle>
+            <CardDescription className="text-slate-300">
+              Получи полный контроль над функциями: timeout 600 сек вместо 30, неограниченные вызовы
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
+            <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-green-300 font-semibold">
+                <Icon name="CheckCircle2" className="h-5 w-5" />
+                Что даёт миграция?
+              </div>
+              <ul className="text-sm text-slate-300 space-y-1 ml-7">
+                <li>⏱ <strong>Timeout 600 сек</strong> (вместо 30!) - генерация документов на 100+ страниц</li>
+                <li>🚀 <strong>Неограниченные вызовы</strong> (не 50k/месяц) - любая нагрузка</li>
+                <li>💾 <strong>256MB памяти</strong> (можно до 4GB) - обработка больших файлов</li>
+                <li>💰 <strong>Оплата по факту</strong> в твоём Yandex Cloud</li>
+              </ul>
+            </div>
+
             <div className="space-y-2">
-              <Label htmlFor="github">
-                GitHub URL <span className="text-destructive">*</span>
+              <Label htmlFor="github-repo" className="text-white">
+                GitHub репозиторий <span className="text-red-400">*</span>
               </Label>
               <Input
-                id="github"
-                placeholder="https://github.com/username/repo"
+                id="github-repo"
+                placeholder="username/repository (например: ivanov/my-project)"
                 value={githubUrl}
                 onChange={(e) => setGithubUrl(e.target.value)}
-                disabled={isDeploying}
+                disabled={isMigrating}
+                className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
               />
-              <Button
-                onClick={handleDeployFunctions}
-                disabled={isDeploying || !githubUrl}
-                size="sm"
-                variant="outline"
-                className="mt-2"
-              >
-                <Icon name="Zap" className="mr-2 h-4 w-4" />
-                Задеплоить функции в Yandex Cloud
-              </Button>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="project">
-                Название проекта <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="project"
-                placeholder="myproject (только латиница и дефис)"
-                value={projectName}
-                onChange={(e) => setProjectName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""))}
-                disabled={isDeploying}
-              />
-              <p className="text-xs text-muted-foreground">
-                Используется для создания базы данных и контейнера
+              <p className="text-xs text-slate-400">
+                Формат: <code className="bg-white/10 px-1 rounded">username/repo-name</code>
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="domain">
-                Домен <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="domain"
-                placeholder="example.ru"
-                value={domain}
-                onChange={(e) => setDomain(e.target.value)}
-                disabled={isDeploying}
-              />
-              <p className="text-xs text-muted-foreground">
-                DNS нужно настроить на IP сервера вручную
-              </p>
-            </div>
-
-            <div className="space-y-2">
-              <div className="rounded-lg border p-4 bg-muted/50">
-                <p className="text-sm font-medium mb-2">🔐 Секреты проекта</p>
-                <p className="text-xs text-muted-foreground">
-                  Все секреты из poehali.dev автоматически перенесутся на VM.
-                  Облачные функции и база данных будут работать так же, как в poehali.dev.
-                </p>
-              </div>
             </div>
 
             <Button
-              onClick={handleDeploy}
-              disabled={isDeploying}
+              onClick={handleMigrateToYandexCloud}
+              disabled={isMigrating || !githubUrl}
               size="lg"
-              className="w-full"
+              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg h-14"
             >
-              {isDeploying ? (
+              {isMigrating ? (
                 <>
-                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                  Деплой в процессе...
+                  <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
+                  Миграция в процессе...
                 </>
               ) : (
                 <>
-                  <Icon name="Rocket" className="mr-2 h-4 w-4" />
-                  Развернуть проект
+                  <Icon name="Rocket" className="mr-2 h-5 w-5" />
+                  Мигрировать на мой Yandex Cloud
                 </>
               )}
             </Button>
+
+            <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-2">
+              <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
+                <Icon name="Info" className="h-4 w-4" />
+                Что происходит при нажатии?
+              </div>
+              <ol className="text-xs text-slate-300 space-y-1 ml-7 list-decimal">
+                <li>Деплоятся все функции из <code className="bg-white/10 px-1 rounded">/backend</code> в твой Yandex Cloud</li>
+                <li>Обновляется <code className="bg-white/10 px-1 rounded">func2url.json</code> с новыми URL</li>
+                <li>Автоматический коммит изменений в GitHub</li>
+                <li>Готово! Перезапусти фронтенд - всё работает с твоими функциями</li>
+              </ol>
+            </div>
           </CardContent>
         </Card>
 
-        {deployLog.length > 1 && (
-          <Card>
+        {deployLog.length > 0 && (
+          <Card className="bg-white/10 backdrop-blur border-white/20">
             <CardHeader>
-              <CardTitle>Лог деплоя</CardTitle>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Icon name="Terminal" className="h-5 w-5" />
+                Логи миграции
+              </CardTitle>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="bg-muted rounded-lg p-4 font-mono text-sm space-y-1 max-h-96 overflow-y-auto">
-                {deployLog.map((log, idx) => (
-                  <div key={idx}>{log}</div>
+            <CardContent>
+              <div className="bg-black/50 rounded-lg p-4 font-mono text-sm space-y-1 max-h-96 overflow-y-auto">
+                {deployLog.map((log, i) => (
+                  <div 
+                    key={i} 
+                    className={`${
+                      log.startsWith('✅') ? 'text-green-400' :
+                      log.startsWith('❌') ? 'text-red-400' :
+                      log.startsWith('🚀') || log.startsWith('📦') || log.startsWith('🔄') ? 'text-blue-400 font-semibold' :
+                      'text-slate-300'
+                    }`}
+                  >
+                    {log}
+                  </div>
                 ))}
-              </div>
-              
-              <div className="space-y-2">
-                <Label htmlFor="vm-ssh-key">VM_SSH_KEY (вставь сюда ключ из логов выше)</Label>
-                <textarea
-                  id="vm-ssh-key"
-                  value={vmSshKey}
-                  onChange={(e) => setVmSshKey(e.target.value)}
-                  placeholder="-----BEGIN RSA PRIVATE KEY-----
-...вставь SSH ключ из логов выше...
------END RSA PRIVATE KEY-----"
-                  className="w-full h-32 px-3 py-2 text-sm border rounded-md font-mono bg-background"
-                />
               </div>
             </CardContent>
           </Card>
         )}
+
+        <Card className="bg-white/5 backdrop-blur border-white/10">
+          <CardHeader>
+            <CardTitle className="text-white text-sm flex items-center gap-2">
+              <Icon name="HelpCircle" className="h-4 w-4" />
+              Требования для миграции
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="text-xs text-slate-400 space-y-2">
+            <p>✅ <strong>GITHUB_TOKEN</strong> - добавь токен с правами <code className="bg-white/10 px-1 rounded">repo</code> в секреты проекта</p>
+            <p>✅ <strong>YANDEX_CLOUD_TOKEN</strong> - OAuth токен для Yandex Cloud (уже добавлен)</p>
+            <p>✅ Папка <code className="bg-white/10 px-1 rounded">/backend</code> с функциями в репозитории</p>
+          </CardContent>
+        </Card>
       </div>
     </div>
   );
