@@ -121,7 +121,9 @@ def handler(event: dict, context) -> dict:
         
         # Получаем IAM токен через OAuth
         iam_token = get_iam_token()
-        folder_id = os.environ.get('YANDEX_FOLDER_ID', 'b1g8dn6bs6vq7v3jqfta')
+        
+        # Получаем folder_id из списка каталогов
+        folder_id = get_folder_id(iam_token)
         
         # Генерируем SSH ключ (публичный)
         ssh_pub_key = generate_ssh_key_pair()
@@ -313,6 +315,43 @@ def get_iam_token() -> str:
         raise Exception(f'Ошибка получения IAM токена: {response.text}')
     
     return response.json()['iamToken']
+
+
+def get_folder_id(iam_token: str) -> str:
+    """Получить первый доступный folder_id"""
+    headers = {'Authorization': f'Bearer {iam_token}'}
+    
+    # Получаем список облаков
+    clouds_response = requests.get(
+        'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds',
+        headers=headers,
+        timeout=10
+    )
+    
+    if clouds_response.status_code != 200:
+        raise Exception(f'Ошибка получения списка облаков: {clouds_response.text}')
+    
+    clouds = clouds_response.json().get('clouds', [])
+    if not clouds:
+        raise Exception('Нет доступных облаков в аккаунте')
+    
+    cloud_id = clouds[0]['id']
+    
+    # Получаем список каталогов в первом облаке
+    folders_response = requests.get(
+        f'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}',
+        headers=headers,
+        timeout=10
+    )
+    
+    if folders_response.status_code != 200:
+        raise Exception(f'Ошибка получения списка каталогов: {folders_response.text}')
+    
+    folders = folders_response.json().get('folders', [])
+    if not folders:
+        raise Exception('Нет доступных каталогов в облаке')
+    
+    return folders[0]['id']
 
 
 def get_cloud_init_script(ssh_pub_key: str) -> str:
