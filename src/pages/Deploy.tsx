@@ -37,6 +37,8 @@ export default function Deploy() {
   const [isDeploying, setIsDeploying] = useState<string | null>(null);
   const [newConfig, setNewConfig] = useState({ name: '', domain: '', repo: '' });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
+  const [isCreatingVM, setIsCreatingVM] = useState(false);
+  const [newVMName, setNewVMName] = useState('');
 
   useEffect(() => {
     loadData();
@@ -183,6 +185,50 @@ export default function Deploy() {
     }
   };
 
+  const handleCreateVM = async () => {
+    if (!newVMName) {
+      toast({
+        title: "Ошибка",
+        description: "Введи название VM",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsCreatingVM(true);
+    try {
+      const resp = await fetch(API_ENDPOINTS.vmCreate, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          name: newVMName
+        })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка создания VM");
+      }
+
+      toast({
+        title: "✅ VM создаётся!",
+        description: data.message || `VM ${newVMName} создаётся, это займёт 1-2 минуты`
+      });
+
+      setNewVMName('');
+      setTimeout(() => loadVMs(), 3000);
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsCreatingVM(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
@@ -199,15 +245,44 @@ export default function Deploy() {
           <p className="text-slate-300">Управляй серверами и деплоем</p>
         </div>
 
-        {vms.length > 0 && (
-          <Card className="bg-white/10 backdrop-blur border-white/20">
-            <CardHeader>
+        <Card className="bg-white/10 backdrop-blur border-white/20">
+          <CardHeader>
+            <div className="flex items-center justify-between">
               <CardTitle className="text-white flex items-center gap-2">
                 <Icon name="Server" className="h-5 w-5 text-green-400" />
                 Серверы
               </CardTitle>
-            </CardHeader>
-            <CardContent>
+              <div className="flex gap-2">
+                <Input
+                  value={newVMName}
+                  onChange={(e) => setNewVMName(e.target.value)}
+                  placeholder="Название VM"
+                  className="bg-slate-800 border-slate-700 text-white w-40"
+                />
+                <Button 
+                  onClick={handleCreateVM}
+                  disabled={isCreatingVM}
+                  size="sm"
+                  className="bg-green-600 hover:bg-green-700"
+                >
+                  {isCreatingVM ? (
+                    <Icon name="Loader2" className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <>
+                      <Icon name="Plus" className="mr-2 h-4 w-4" />
+                      Создать VM
+                    </>
+                  )}
+                </Button>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {vms.length === 0 ? (
+              <div className="text-center py-8 text-slate-400">
+                Нет серверов. Создай VM через Yandex Cloud.
+              </div>
+            ) : (
               <div className="grid gap-3">
                 {vms.map(vm => (
                   <div key={vm.id} className="bg-slate-900/50 rounded-lg p-4 flex items-center justify-between">
@@ -222,9 +297,9 @@ export default function Deploy() {
                   </div>
                 ))}
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
+          </CardContent>
+        </Card>
 
         <Card className="bg-white/10 backdrop-blur border-white/20">
           <CardHeader>
