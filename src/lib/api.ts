@@ -8,6 +8,7 @@ export const API_ENDPOINTS = {
   ycCreate: func2url['yc-create'],
   ycSetup: func2url['yc-setup'],
   deploy: func2url['deploy'],
+  deployConfig: func2url['deploy-config'],
   setupWebhook: func2url['setup-webhook'],
 };
 

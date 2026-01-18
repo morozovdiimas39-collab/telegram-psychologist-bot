@@ -1,111 +1,156 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+interface DeployConfig {
+  id: number;
+  name: string;
+  domain: string;
+  github_repo: string;
+  vm_ip: string;
+  vm_user: string;
+  vm_webhook_url: string;
+  created_at: string;
+  updated_at: string;
+}
 
 const Deploy = () => {
-  const [domain, setDomain] = useState("");
-  const [githubRepo, setGithubRepo] = useState("");
+  const [configs, setConfigs] = useState<DeployConfig[]>([]);
+  const [selectedConfig, setSelectedConfig] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(true);
   const [isDeploying, setIsDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
+  const [showNewConfigDialog, setShowNewConfigDialog] = useState(false);
   const { toast } = useToast();
 
-  const handleFullDeploy = async () => {
-    if (!domain || !githubRepo) {
+  const [newConfig, setNewConfig] = useState({
+    name: "",
+    domain: "",
+    github_repo: "",
+    vm_ip: "",
+    vm_user: "ubuntu",
+    vm_ssh_key: ""
+  });
+
+  useEffect(() => {
+    loadConfigs();
+  }, []);
+
+  const loadConfigs = async () => {
+    try {
+      const resp = await fetch(API_ENDPOINTS.deployConfig);
+      const data = await resp.json();
+      setConfigs(data);
+      if (data.length > 0 && !selectedConfig) {
+        setSelectedConfig(data[0].name);
+      }
+    } catch (error: any) {
+      toast({
+        title: "Ошибка загрузки конфигов",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  const handleCreateConfig = async () => {
+    if (!newConfig.name || !newConfig.domain || !newConfig.github_repo || !newConfig.vm_ip || !newConfig.vm_ssh_key) {
       toast({
         title: "Ошибка",
-        description: "Укажи домен и GitHub репозиторий",
+        description: "Заполни все обязательные поля",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    try {
+      const resp = await fetch(API_ENDPOINTS.deployConfig, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...newConfig,
+          vm_webhook_url: `http://${newConfig.vm_ip}:9000/deploy`
+        })
+      });
+
+      if (!resp.ok) {
+        const error = await resp.json();
+        throw new Error(error.error || "Ошибка создания конфига");
+      }
+
+      toast({
+        title: "Конфиг создан!",
+        description: `Конфиг ${newConfig.name} успешно создан`
+      });
+
+      setShowNewConfigDialog(false);
+      setNewConfig({
+        name: "",
+        domain: "",
+        github_repo: "",
+        vm_ip: "",
+        vm_user: "ubuntu",
+        vm_ssh_key: ""
+      });
+      loadConfigs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const handleDeploy = async () => {
+    if (!selectedConfig) {
+      toast({
+        title: "Ошибка",
+        description: "Выбери конфигурацию",
         variant: "destructive"
       });
       return;
     }
 
     setIsDeploying(true);
-    setDeployLog(["🚀 Начинаю полный деплой проекта..."]);
+    setDeployLog([`🚀 Начинаю деплой конфига: ${selectedConfig}...`]);
 
     try {
-      // 1. Деплой backend функций
-      setDeployLog(prev => [...prev, "", "📦 ШАГ 1/4: Деплой backend функций..."]);
-      
-      let offset = 0;
-      let hasMore = true;
-      let totalFunctions = 0;
-
-      while (hasMore) {
-        const backendResp = await fetch(API_ENDPOINTS.deployFunctions, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            secrets: [],
-            github_repo: githubRepo,
-            offset: offset,
-            batch_size: 5
-          })
-        });
-
-        const backendData = await backendResp.json();
-        if (!backendResp.ok) throw new Error(backendData.error || "Ошибка деплоя функций");
-
-        setDeployLog(prev => [...prev, ...backendData.logs]);
-        totalFunctions = backendData.deployed_count || (totalFunctions + backendData.deployed?.length || 0);
-        hasMore = backendData.has_more || false;
-        
-        if (hasMore) {
-          offset = backendData.next_offset || (offset + 5);
-          await new Promise(resolve => setTimeout(resolve, 2000));
-        }
-      }
-
-      setDeployLog(prev => [...prev, `✅ Backend: ${totalFunctions} функций задеплоено`]);
-
-      // 2. Миграция базы данных
-      setDeployLog(prev => [...prev, "", "💾 ШАГ 2/4: Миграция базы данных..."]);
-      
-      // TODO: здесь будет вызов миграций
-      setDeployLog(prev => [...prev, "✅ База данных: миграции применены"]);
-
-      // 3. Билд и деплой фронтенда
-      setDeployLog(prev => [...prev, "", "🎨 ШАГ 3/4: Деплой фронтенда на VM..."]);
-      
-      const frontendResp = await fetch(API_ENDPOINTS.deploy, {
+      const resp = await fetch(API_ENDPOINTS.deploy, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
-          domain: domain,
-          github_repo: githubRepo
+          config_name: selectedConfig
         })
       });
 
-      const frontendData = await frontendResp.json();
-      if (!frontendResp.ok) throw new Error(frontendData.error || "Ошибка деплоя фронтенда");
-
-      setDeployLog(prev => [...prev, ...frontendData.logs]);
-      setDeployLog(prev => [...prev, `✅ Frontend: доступен на https://${domain}`]);
-
-      // 4. Настройка SSL
-      setDeployLog(prev => [...prev, "", "🔒 ШАГ 4/4: Выпуск SSL сертификата..."]);
-      setDeployLog(prev => [...prev, "✅ SSL: сертификат выпущен и установлен"]);
+      const data = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка деплоя");
+      }
 
       setDeployLog(prev => [
         ...prev,
         "",
-        "🎉 ДЕПЛОЙ ЗАВЕРШЁН!",
+        `✅ ${data.message}`,
         "",
-        `🌐 Сайт: https://${domain}`,
-        `⚙️ Backend: ${totalFunctions} функций в Yandex Cloud`,
-        `💾 База данных: синхронизирована`,
-        `🔒 SSL: активен`,
-        "",
-        "✨ Проект полностью в продакшене!"
+        "🎉 Деплой запущен на VM!",
+        "Следи за прогрессом на сервере"
       ]);
 
       toast({
-        title: "🎉 Деплой завершён!",
-        description: `Проект доступен на https://${domain}`
+        title: "Деплой запущен!",
+        description: data.message
       });
 
     } catch (error: any) {
@@ -120,205 +165,295 @@ const Deploy = () => {
     }
   };
 
+  const handleDeleteConfig = async (name: string) => {
+    if (!confirm(`Удалить конфиг "${name}"?`)) return;
+
+    try {
+      const resp = await fetch(`${API_ENDPOINTS.deployConfig}?name=${name}`, {
+        method: "DELETE"
+      });
+
+      if (!resp.ok) {
+        const error = await resp.json();
+        throw new Error(error.error || "Ошибка удаления");
+      }
+
+      toast({
+        title: "Конфиг удалён",
+        description: `Конфиг ${name} успешно удалён`
+      });
+
+      loadConfigs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 flex items-center justify-center">
+        <div className="text-white text-xl">Загрузка...</div>
+      </div>
+    );
+  }
+
+  const currentConfig = configs.find(c => c.name === selectedConfig);
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 p-4">
-      <div className="container mx-auto max-w-4xl py-8 space-y-8">
+      <div className="container mx-auto max-w-6xl py-8 space-y-8">
         <div className="text-center space-y-4">
           <h1 className="text-4xl font-bold text-white">Деплой проекта</h1>
           <p className="text-slate-300 text-lg">
-            Полный деплой: frontend + backend + база данных + SSL
+            Управление конфигурациями и деплой на VM
           </p>
         </div>
 
-        <Card className="bg-white/10 backdrop-blur border-white/20">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Icon name="Rocket" className="h-6 w-6 text-purple-400" />
-              Настройки деплоя
-            </CardTitle>
-            <CardDescription className="text-slate-300">
-              Укажи домен и репозиторий - всё остальное автоматически
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            <div className="grid gap-6 md:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="domain" className="text-white">
-                  Домен <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  id="domain"
-                  placeholder="cleaning-service.ru"
-                  value={domain}
-                  onChange={(e) => setDomain(e.target.value)}
-                  disabled={isDeploying}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
-                />
-                <p className="text-xs text-slate-400">
-                  Домен должен быть делегирован на твою VM
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="github" className="text-white">
-                  GitHub репозиторий <span className="text-red-400">*</span>
-                </Label>
-                <Input
-                  id="github"
-                  placeholder="username/repo-name"
-                  value={githubRepo}
-                  onChange={(e) => setGithubRepo(e.target.value)}
-                  disabled={isDeploying}
-                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
-                />
-                <p className="text-xs text-slate-400">
-                  Формат: username/repository
-                </p>
-              </div>
-            </div>
-
-            <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-3">
-              <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
-                <Icon name="Info" className="h-4 w-4" />
-                Что будет задеплоено?
-              </div>
-              <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
-                <div className="flex items-start gap-2">
-                  <Icon name="Globe" className="h-4 w-4 text-green-400 mt-0.5" />
-                  <div>
-                    <div className="font-semibold">Frontend</div>
-                    <div className="text-slate-400">Сборка + Nginx + SSL</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Icon name="Zap" className="h-4 w-4 text-yellow-400 mt-0.5" />
-                  <div>
-                    <div className="font-semibold">Backend</div>
-                    <div className="text-slate-400">Все функции в Yandex Cloud</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Icon name="Database" className="h-4 w-4 text-purple-400 mt-0.5" />
-                  <div>
-                    <div className="font-semibold">База данных</div>
-                    <div className="text-slate-400">Миграции PostgreSQL</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-2">
-                  <Icon name="Lock" className="h-4 w-4 text-blue-400 mt-0.5" />
-                  <div>
-                    <div className="font-semibold">SSL</div>
-                    <div className="text-slate-400">Let's Encrypt сертификат</div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <Button
-              onClick={handleFullDeploy}
-              disabled={isDeploying || !domain || !githubRepo}
-              size="lg"
-              className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg h-14"
-            >
-              {isDeploying ? (
-                <>
-                  <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
-                  Деплой в процессе...
-                </>
-              ) : (
-                <>
-                  <Icon name="Rocket" className="mr-2 h-5 w-5" />
-                  Задеплоить весь проект
-                </>
-              )}
-            </Button>
-          </CardContent>
-        </Card>
-
-        {deployLog.length > 0 && (
+        <div className="grid lg:grid-cols-3 gap-6">
+          {/* Список конфигов */}
           <Card className="bg-white/10 backdrop-blur border-white/20">
             <CardHeader>
-              <CardTitle className="text-white flex items-center gap-2">
-                <Icon name="Terminal" className="h-5 w-5" />
-                Логи деплоя
+              <CardTitle className="text-white flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Icon name="Settings" className="h-5 w-5" />
+                  Конфигурации
+                </span>
+                <Button
+                  size="sm"
+                  onClick={() => setShowNewConfigDialog(true)}
+                  className="bg-green-500 hover:bg-green-600"
+                >
+                  <Icon name="Plus" className="h-4 w-4" />
+                </Button>
               </CardTitle>
             </CardHeader>
-            <CardContent>
-              <div className="bg-black/50 rounded-lg p-4 font-mono text-sm space-y-1 max-h-96 overflow-y-auto">
-                {deployLog.map((log, i) => (
-                  <div 
-                    key={i} 
-                    className={`${
-                      log.startsWith('✅') ? 'text-green-400' :
-                      log.startsWith('❌') ? 'text-red-400' :
-                      log.startsWith('🚀') || log.startsWith('📦') || log.startsWith('💾') || log.startsWith('🎨') || log.startsWith('🔒') ? 'text-blue-400 font-semibold' :
-                      log.startsWith('🎉') ? 'text-yellow-400 font-bold' :
-                      'text-slate-300'
+            <CardContent className="space-y-2">
+              {configs.length === 0 ? (
+                <div className="text-center text-slate-400 py-8">
+                  <Icon name="FolderOpen" className="h-12 w-12 mx-auto mb-2 opacity-50" />
+                  <p>Нет конфигураций</p>
+                  <p className="text-xs mt-1">Создай первую!</p>
+                </div>
+              ) : (
+                configs.map(config => (
+                  <div
+                    key={config.id}
+                    className={`p-3 rounded-lg border cursor-pointer transition-colors ${
+                      selectedConfig === config.name
+                        ? 'bg-blue-500/30 border-blue-400'
+                        : 'bg-white/5 border-white/10 hover:bg-white/10'
                     }`}
+                    onClick={() => setSelectedConfig(config.name)}
                   >
-                    {log}
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-white font-semibold">{config.name}</div>
+                        <div className="text-xs text-slate-400">{config.domain}</div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteConfig(config.name);
+                        }}
+                        className="text-red-400 hover:text-red-300 hover:bg-red-500/20"
+                      >
+                        <Icon name="Trash2" className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </div>
-                ))}
-              </div>
+                ))
+              )}
             </CardContent>
           </Card>
-        )}
 
-        <Card className="bg-yellow-500/10 backdrop-blur border-yellow-500/30">
-          <CardHeader>
-            <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Icon name="AlertCircle" className="h-4 w-4 text-yellow-400" />
-              Требования для деплоя
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-slate-300 space-y-2">
-              <div className="flex items-start gap-2">
-                <Icon name="Key" className="h-4 w-4 text-yellow-400 mt-0.5" />
-                <div>
-                  <strong>YANDEX_CLOUD_TOKEN</strong> - OAuth токен для Yandex Cloud
-                  <p className="text-xs text-slate-400">Для деплоя backend функций</p>
+          {/* Детали конфига */}
+          <Card className="bg-white/10 backdrop-blur border-white/20 lg:col-span-2">
+            <CardHeader>
+              <CardTitle className="text-white flex items-center gap-2">
+                <Icon name="Info" className="h-5 w-5" />
+                {currentConfig ? currentConfig.name : "Выбери конфиг"}
+              </CardTitle>
+              <CardDescription className="text-slate-300">
+                Информация о конфигурации деплоя
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              {currentConfig ? (
+                <div className="space-y-6">
+                  <div className="grid md:grid-cols-2 gap-4">
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-400">Домен</div>
+                      <div className="text-white font-mono">{currentConfig.domain}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-400">GitHub репозиторий</div>
+                      <div className="text-white font-mono text-sm">{currentConfig.github_repo}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-400">IP сервера</div>
+                      <div className="text-white font-mono">{currentConfig.vm_ip}</div>
+                    </div>
+                    <div className="space-y-1">
+                      <div className="text-xs text-slate-400">Пользователь</div>
+                      <div className="text-white font-mono">{currentConfig.vm_user}</div>
+                    </div>
+                    <div className="space-y-1 md:col-span-2">
+                      <div className="text-xs text-slate-400">Webhook URL</div>
+                      <div className="text-white font-mono text-sm">{currentConfig.vm_webhook_url}</div>
+                    </div>
+                  </div>
+
+                  <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4">
+                    <div className="text-blue-300 font-semibold mb-2 flex items-center gap-2">
+                      <Icon name="Rocket" className="h-4 w-4" />
+                      Деплой
+                    </div>
+                    <p className="text-slate-300 text-sm mb-4">
+                      Нажми кнопку чтобы задеплоить фронтенд на VM. Backend функции деплоятся отдельно через sync_backend.
+                    </p>
+                    <Button
+                      onClick={handleDeploy}
+                      disabled={isDeploying}
+                      className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-bold"
+                    >
+                      {isDeploying ? (
+                        <>
+                          <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
+                          Деплой...
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="Rocket" className="mr-2 h-5 w-5" />
+                          Задеплоить фронтенд
+                        </>
+                      )}
+                    </Button>
+                  </div>
+
+                  {deployLog.length > 0 && (
+                    <div className="bg-slate-900/50 border border-slate-700 rounded-lg p-4 font-mono text-sm text-slate-300 max-h-96 overflow-y-auto">
+                      {deployLog.map((log, i) => (
+                        <div key={i}>{log}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
+              ) : (
+                <div className="text-center text-slate-400 py-12">
+                  <Icon name="MousePointerClick" className="h-16 w-16 mx-auto mb-4 opacity-50" />
+                  <p>Выбери конфигурацию слева</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* Диалог создания конфига */}
+      <Dialog open={showNewConfigDialog} onOpenChange={setShowNewConfigDialog}>
+        <DialogContent className="bg-slate-900 border-slate-700 text-white max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Новая конфигурация</DialogTitle>
+            <DialogDescription className="text-slate-400">
+              Создай конфиг для деплоя на VM
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="config-name">Название <span className="text-red-400">*</span></Label>
+                <Input
+                  id="config-name"
+                  placeholder="production"
+                  value={newConfig.name}
+                  onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
               </div>
-              <div className="flex items-start gap-2">
-                <Icon name="Key" className="h-4 w-4 text-yellow-400 mt-0.5" />
-                <div>
-                  <strong>GITHUB_TOKEN</strong> - Personal Access Token
-                  <p className="text-xs text-slate-400">Для чтения кода и обновления func2url.json</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <Icon name="Server" className="h-4 w-4 text-yellow-400 mt-0.5" />
-                <div>
-                  <strong>VM_SSH_KEY</strong> - SSH ключ для доступа к серверу
-                  <p className="text-xs text-slate-400">Для загрузки фронтенда и настройки Nginx</p>
-                </div>
-              </div>
-              <div className="flex items-start gap-2">
-                <Icon name="Globe" className="h-4 w-4 text-yellow-400 mt-0.5" />
-                <div>
-                  <strong>Домен</strong> - делегирован на IP твоей VM
-                  <p className="text-xs text-slate-400">A-запись должна указывать на IP виртуальной машины</p>
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="config-domain">Домен <span className="text-red-400">*</span></Label>
+                <Input
+                  id="config-domain"
+                  placeholder="mysite.ru"
+                  value={newConfig.domain}
+                  onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
               </div>
             </div>
-          </CardContent>
-        </Card>
 
-        <Card className="bg-white/5 backdrop-blur border-white/10">
-          <CardHeader>
-            <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Icon name="LifeBuoy" className="h-4 w-4" />
-              Помощь
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="text-xs text-slate-400 space-y-2">
-            <p><strong>Как делегировать домен?</strong> В настройках DNS создай A-запись с IP твоей VM</p>
-            <p><strong>Где взять VM_SSH_KEY?</strong> Создай виртуальную машину в Yandex Cloud и получи SSH ключ</p>
-            <p><strong>Проблемы с деплоем?</strong> Проверь логи выше - там указаны детали ошибок</p>
-          </CardContent>
-        </Card>
-      </div>
+            <div className="space-y-2">
+              <Label htmlFor="config-repo">GitHub репозиторий <span className="text-red-400">*</span></Label>
+              <Input
+                id="config-repo"
+                placeholder="username/repo-name"
+                value={newConfig.github_repo}
+                onChange={(e) => setNewConfig({...newConfig, github_repo: e.target.value})}
+                className="bg-slate-800 border-slate-700"
+              />
+            </div>
+
+            <div className="grid md:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="config-ip">IP сервера <span className="text-red-400">*</span></Label>
+                <Input
+                  id="config-ip"
+                  placeholder="158.160.115.239"
+                  value={newConfig.vm_ip}
+                  onChange={(e) => setNewConfig({...newConfig, vm_ip: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="config-user">Пользователь</Label>
+                <Input
+                  id="config-user"
+                  placeholder="ubuntu"
+                  value={newConfig.vm_user}
+                  onChange={(e) => setNewConfig({...newConfig, vm_user: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="config-ssh">SSH ключ <span className="text-red-400">*</span></Label>
+              <Textarea
+                id="config-ssh"
+                placeholder="-----BEGIN RSA PRIVATE KEY-----"
+                value={newConfig.vm_ssh_key}
+                onChange={(e) => setNewConfig({...newConfig, vm_ssh_key: e.target.value})}
+                className="bg-slate-800 border-slate-700 font-mono text-xs"
+                rows={6}
+              />
+              <p className="text-xs text-slate-500">Приватный SSH ключ для доступа к VM</p>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <Button
+                onClick={handleCreateConfig}
+                className="flex-1 bg-green-600 hover:bg-green-700"
+              >
+                <Icon name="Check" className="mr-2 h-4 w-4" />
+                Создать конфиг
+              </Button>
+              <Button
+                onClick={() => setShowNewConfigDialog(false)}
+                variant="outline"
+                className="border-slate-700 hover:bg-slate-800"
+              >
+                Отмена
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

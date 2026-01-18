@@ -10,13 +10,13 @@
       }
     },
     {
-      "name": "POST with missing fields returns 400",
+      "name": "POST with non-existent config returns 404",
       "method": "POST",
       "path": "/",
       "body": {
-        "githubUrl": "https://github.com/test/repo"
+        "config_name": "non-existent-config"
       },
-      "expectedStatus": 400,
+      "expectedStatus": 404,
       "expectedBody": {
         "error": "string"
       },

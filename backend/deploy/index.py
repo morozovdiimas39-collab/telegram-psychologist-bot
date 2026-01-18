@@ -1,10 +1,12 @@
 import json
 import os
+import psycopg2
 import requests
+from psycopg2.extras import RealDictCursor
 
 
 def handler(event: dict, context) -> dict:
-    """Деплой фронтенда через webhook на VM"""
+    """Деплой фронтенда через webhook на VM (данные из deploy_configs)"""
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -21,28 +23,35 @@ def handler(event: dict, context) -> dict:
 
     try:
         body = json.loads(event.get('body', '{}'))
-        domain = body.get('domain', '').strip()
-        github_repo = body.get('github_repo', '').strip()
+        config_name = body.get('config_name', 'production')
         
-        if not domain or not github_repo:
+        dsn = os.environ['DATABASE_URL']
+        schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
+        
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cur.execute(
+            f"SELECT domain, github_repo, vm_webhook_url FROM {schema}.deploy_configs WHERE name = %s",
+            (config_name,)
+        )
+        
+        config = cur.fetchone()
+        cur.close()
+        conn.close()
+        
+        if not config:
             return {
-                'statusCode': 400,
+                'statusCode': 404,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'domain и github_repo обязательны'}),
+                'body': json.dumps({'error': f'Конфиг {config_name} не найден'}),
                 'isBase64Encoded': False
             }
         
-        webhook_url = os.environ.get('VM_WEBHOOK_URL')
+        webhook_url = config['vm_webhook_url']
+        domain = config['domain']
+        github_repo = config['github_repo']
         
-        if not webhook_url:
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'VM_WEBHOOK_URL не настроен'}),
-                'isBase64Encoded': False
-            }
-        
-        # Отправляем webhook на VM
         response = requests.post(
             webhook_url,
             json={
@@ -79,6 +88,13 @@ def handler(event: dict, context) -> dict:
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
             'body': json.dumps({'error': 'Timeout - VM не отвечает'}),
+            'isBase64Encoded': False
+        }
+    except KeyError as e:
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({'error': f'Секрет не найден: {str(e)}'}),
             'isBase64Encoded': False
         }
     except Exception as e:
