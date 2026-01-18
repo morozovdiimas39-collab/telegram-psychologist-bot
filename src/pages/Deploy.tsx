@@ -27,26 +27,40 @@ const Deploy = () => {
     setDeployLog(["🚀 Начинаю полную миграцию на Yandex Cloud..."]);
 
     try {
-      setDeployLog(prev => [...prev, "", "📦 Шаг 1/2: Деплою backend функции + обновляю func2url.json..."]);
-      const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          secrets: [],
-          github_repo: githubUrl
-        })
-      });
+      let offset = 0;
+      let hasMore = true;
+      let totalDeployed = 0;
 
-      const deployData = await deployResp.json();
+      while (hasMore) {
+        setDeployLog(prev => [...prev, "", `📦 Деплою пачку функций (offset: ${offset})...`]);
+        
+        const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            secrets: [],
+            github_repo: githubUrl,
+            offset: offset,
+            batch_size: 5
+          })
+        });
 
-      if (!deployResp.ok) {
-        throw new Error(deployData.error || "Ошибка деплоя функций");
-      }
+        const deployData = await deployResp.json();
 
-      setDeployLog(prev => [...prev, ...deployData.logs]);
+        if (!deployResp.ok) {
+          throw new Error(deployData.error || "Ошибка деплоя функций");
+        }
 
-      if (!deployData.function_urls || Object.keys(deployData.function_urls).length === 0) {
-        throw new Error("Не получены URL функций");
+        setDeployLog(prev => [...prev, ...deployData.logs]);
+        
+        totalDeployed = deployData.deployed_count || (totalDeployed + deployData.deployed?.length || 0);
+        hasMore = deployData.has_more || false;
+        
+        if (hasMore) {
+          offset = deployData.next_offset || (offset + 5);
+          setDeployLog(prev => [...prev, "", `⏳ Пауза 2 сек перед следующей пачкой...`]);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+        }
       }
 
       setDeployLog(prev => [
@@ -58,12 +72,12 @@ const Deploy = () => {
         "1. Перезапусти фронтенд - он подхватит новые URL из func2url.json",
         "2. Все функции теперь работают в твоём Yandex Cloud с timeout 600 сек!",
         "",
-        `✨ Задеплоено функций: ${deployData.deployed?.length || 0}`
+        `✨ Всего задеплоено функций: ${totalDeployed}`
       ]);
 
       toast({
         title: "🎉 Миграция завершена!",
-        description: `${deployData.deployed?.length || 0} функций перенесено в твой Yandex Cloud`
+        description: `${totalDeployed} функций перенесено в твой Yandex Cloud`
       });
 
     } catch (error: any) {

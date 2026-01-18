@@ -26,6 +26,8 @@ def handler(event: dict, context) -> dict:
         body = json.loads(event.get('body', '{}'))
         secrets = body.get('secrets', [])
         github_repo = body.get('github_repo')
+        batch_size = body.get('batch_size', 5)  # Деплоим по 5 функций за раз
+        offset = body.get('offset', 0)  # С какой функции начать
         
         oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
         github_token = os.environ.get('GITHUB_TOKEN')
@@ -91,7 +93,7 @@ def handler(event: dict, context) -> dict:
             raise ValueError(f"Папка /backend не найдена. Убедись что код залит в GitHub.")
         
         backend_items = backend_resp.json()
-        function_dirs = []
+        all_function_dirs = []
         
         for item in backend_items:
             if item['type'] == 'dir':
@@ -99,9 +101,20 @@ def handler(event: dict, context) -> dict:
                 index_url = f"https://api.github.com/repos/{github_repo}/contents/backend/{item['name']}/index.py"
                 index_check = requests.get(index_url, headers=headers_gh, timeout=5)
                 if index_check.status_code == 200:
-                    function_dirs.append(item['name'])
+                    all_function_dirs.append(item['name'])
         
-        logs.append(f"✅ Найдено функций: {len(function_dirs)}")
+        total_functions = len(all_function_dirs)
+        logs.append(f"✅ Найдено функций: {total_functions}")
+        
+        # Деплоим только пачку функций
+        function_dirs = all_function_dirs[offset:offset + batch_size]
+        remaining = total_functions - (offset + len(function_dirs))
+        
+        if len(function_dirs) < total_functions:
+            logs.append(f"📦 Деплою пачку {offset // batch_size + 1}: функции {offset + 1}-{offset + len(function_dirs)} из {total_functions}")
+            logs.append(f"⏳ Осталось: {remaining} функций")
+        else:
+            logs.append(f"📦 Деплою все {len(function_dirs)} функций за раз")
         
         deployed_functions = []
         function_urls = {}
@@ -249,7 +262,12 @@ def handler(event: dict, context) -> dict:
             deployed_functions.append(func_name)
         
         logs.append("")
-        logs.append(f"🎉 Готово! Задеплоено функций: {len(deployed_functions)}")
+        logs.append(f"🎉 Готово! Задеплоено функций в этой пачке: {len(deployed_functions)}")
+        
+        # Проверяем остались ли ещё функции
+        has_more = remaining > 0
+        if has_more:
+            logs.append(f"⏭️ Осталось ещё {remaining} функций - запусти деплой снова!")
         
         # Обновляем func2url.json в GitHub если указан репозиторий
         if github_repo and github_token and function_urls:
@@ -317,7 +335,11 @@ def handler(event: dict, context) -> dict:
                 'success': True,
                 'deployed': deployed_functions,
                 'function_urls': function_urls,
-                'logs': logs
+                'logs': logs,
+                'has_more': has_more,
+                'next_offset': offset + len(function_dirs) if has_more else None,
+                'total_functions': total_functions,
+                'deployed_count': offset + len(deployed_functions)
             }),
             'isBase64Encoded': False
         }
