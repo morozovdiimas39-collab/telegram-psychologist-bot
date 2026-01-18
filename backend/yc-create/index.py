@@ -1,6 +1,8 @@
 import json
 import os
 import requests
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 
 def handler(event: dict, context) -> dict:
@@ -105,15 +107,44 @@ def handler(event: dict, context) -> dict:
         )
         instances = instances_resp.json().get("instances", [])
         
+        dsn = os.environ['DATABASE_URL']
+        schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
+        
         for vm in instances:
             if vm.get("name") == "deploy-server":
-                logs.append("✅ VM уже существует!")
+                logs.append("✅ VM уже существует в Yandex Cloud")
                 vm_ip = None
                 for iface in vm.get("networkInterfaces", []):
                     nat = iface.get("primaryV4Address", {}).get("oneToOneNat", {})
                     vm_ip = nat.get("address")
                     if vm_ip:
                         break
+                
+                # Проверяем есть ли в БД
+                conn = psycopg2.connect(dsn)
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                cur.execute(
+                    f"SELECT id FROM {schema}.vm_instances WHERE yandex_vm_id = %s",
+                    (vm["id"],)
+                )
+                existing = cur.fetchone()
+                
+                if not existing:
+                    logs.append("💾 Добавляю VM в БД...")
+                    cur.execute(
+                        f"""
+                        INSERT INTO {schema}.vm_instances 
+                        (name, ip_address, ssh_user, status, yandex_vm_id)
+                        VALUES (%s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        ("deploy-server", vm_ip, "ubuntu", "ready", vm["id"])
+                    )
+                    conn.commit()
+                    logs.append("✅ VM сохранена в БД")
+                
+                cur.close()
+                conn.close()
                 
                 webhook_url = f"http://{vm_ip}:9000/deploy"
                 
@@ -124,11 +155,7 @@ def handler(event: dict, context) -> dict:
                         'success': True,
                         'ip': vm_ip,
                         'webhook': webhook_url,
-                        'logs': logs,
-                        'secrets_to_add': [
-                            {'name': 'VM_IP_ADDRESS', 'value': vm_ip},
-                            {'name': 'VM_WEBHOOK_URL', 'value': webhook_url}
-                        ]
+                        'logs': logs
                     }),
                     'isBase64Encoded': False
                 }
@@ -248,14 +275,37 @@ runcmd:
                 'isBase64Encoded': False
             }
         
-        operation_id = create_resp.json()["id"]
+        operation_data = create_resp.json()
+        operation_id = operation_data["id"]
+        
         logs.append(f"✅ Операция запущена: {operation_id}")
-        logs.append("⏳ VM создаётся 2-3 минуты, повтори запрос через минуту")
+        logs.append("💾 Сохраняю VM в БД...")
+        
+        # Сохраняем VM в БД сразу со статусом creating
+        conn = psycopg2.connect(dsn)
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        cur.execute(
+            f"""
+            INSERT INTO {schema}.vm_instances 
+            (name, ip_address, ssh_user, status, yandex_vm_id)
+            VALUES (%s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            ("deploy-server", None, "ubuntu", "creating", operation_id)
+        )
+        vm_db_id = cur.fetchone()["id"]
+        conn.commit()
+        cur.close()
+        conn.close()
+        
+        logs.append(f"✅ VM #{vm_db_id} сохранена в БД")
+        logs.append("⏳ VM создаётся 2-3 минуты, обнови список")
         
         return {
             'statusCode': 202,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'success': True, 'operation_id': operation_id, 'logs': logs}),
+            'body': json.dumps({'success': True, 'operation_id': operation_id, 'vm_id': vm_db_id, 'logs': logs}),
             'isBase64Encoded': False
         }
         

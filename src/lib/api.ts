@@ -6,6 +6,7 @@ export const API_ENDPOINTS = {
   migrate: func2url['migrate'],
   deployFunctions: func2url['deploy-functions'],
   ycCreate: func2url['yc-create'],
+  ycSync: func2url['yc-sync'],
   ycSetup: func2url['yc-setup'],
   deploy: func2url['deploy'],
   deployConfig: func2url['deploy-config'],

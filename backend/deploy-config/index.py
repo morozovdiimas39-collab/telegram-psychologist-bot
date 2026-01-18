@@ -84,8 +84,8 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 f"""
                 INSERT INTO {schema}.deploy_configs 
-                (name, domain, github_repo, vm_instance_id, vm_ip, vm_user, vm_ssh_key, vm_webhook_url)
-                VALUES (%s, %s, %s, %s, '', '', '', '')
+                (name, domain, github_repo, vm_instance_id, vm_ip, vm_user, vm_ssh_key)
+                VALUES (%s, %s, %s, %s, '0.0.0.0', 'ubuntu', 'placeholder')
                 RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
                 """,
                 (

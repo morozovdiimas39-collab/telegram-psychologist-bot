@@ -38,7 +38,6 @@ export default function Deploy() {
   const [newConfig, setNewConfig] = useState({ name: '', domain: '', repo: '' });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
-  const [newVMName, setNewVMName] = useState('');
 
   useEffect(() => {
     loadData();
@@ -186,23 +185,12 @@ export default function Deploy() {
   };
 
   const handleCreateVM = async () => {
-    if (!newVMName) {
-      toast({
-        title: "Ошибка",
-        description: "Введи название VM",
-        variant: "destructive"
-      });
-      return;
-    }
-
     setIsCreatingVM(true);
     try {
-      const resp = await fetch(API_ENDPOINTS.vmCreate, {
+      const resp = await fetch(API_ENDPOINTS.ycCreate, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newVMName
-        })
+        body: JSON.stringify({})
       });
 
       const data = await resp.json();
@@ -213,11 +201,10 @@ export default function Deploy() {
 
       toast({
         title: "✅ VM создаётся!",
-        description: data.message || `VM ${newVMName} создаётся, это займёт 1-2 минуты`
+        description: data.logs ? data.logs.join('\n') : "VM создаётся 2-3 минуты"
       });
 
-      setNewVMName('');
-      setTimeout(() => loadVMs(), 3000);
+      setTimeout(() => handleSyncVMs(), 5000);
     } catch (error: any) {
       toast({
         title: "Ошибка",
@@ -226,6 +213,35 @@ export default function Deploy() {
       });
     } finally {
       setIsCreatingVM(false);
+    }
+  };
+
+  const handleSyncVMs = async () => {
+    try {
+      const resp = await fetch(API_ENDPOINTS.ycSync, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка синхронизации");
+      }
+
+      toast({
+        title: "✅ Синхронизация завершена",
+        description: data.logs ? data.logs.join('\n') : `Обновлено ${data.updated} VM`
+      });
+
+      await loadVMs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
     }
   };
 
@@ -253,17 +269,18 @@ export default function Deploy() {
                 Серверы
               </CardTitle>
               <div className="flex gap-2">
-                <Input
-                  value={newVMName}
-                  onChange={(e) => setNewVMName(e.target.value)}
-                  placeholder="Название VM"
-                  className="bg-slate-800 border-slate-700 text-white w-40"
-                />
+                <Button
+                  onClick={handleSyncVMs}
+                  variant="outline"
+                  className="border-blue-400/30 hover:bg-blue-400/10 text-blue-300"
+                >
+                  <Icon name="RefreshCw" className="h-4 w-4 mr-2" />
+                  Обновить
+                </Button>
                 <Button 
                   onClick={handleCreateVM}
                   disabled={isCreatingVM}
-                  size="sm"
-                  className="bg-green-600 hover:bg-green-700"
+                  className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white"
                 >
                   {isCreatingVM ? (
                     <Icon name="Loader2" className="h-4 w-4 animate-spin" />
