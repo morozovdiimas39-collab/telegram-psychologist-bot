@@ -32,9 +32,7 @@ const Deploy = () => {
   const [newConfig, setNewConfig] = useState({
     name: "",
     domain: "",
-    github_repo: "",
-    vm_ip: "",
-    vm_user: "ubuntu"
+    github_repo: ""
   });
 
   useEffect(() => {
@@ -61,7 +59,7 @@ const Deploy = () => {
   };
 
   const handleCreateConfig = async () => {
-    if (!newConfig.name || !newConfig.domain || !newConfig.github_repo || !newConfig.vm_ip) {
+    if (!newConfig.name || !newConfig.domain || !newConfig.github_repo) {
       toast({
         title: "Ошибка",
         description: "Заполни все обязательные поля",
@@ -76,7 +74,8 @@ const Deploy = () => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           ...newConfig,
-          vm_webhook_url: `http://${newConfig.vm_ip}:9000/deploy`
+          vm_ip: "0.0.0.0",
+          vm_user: "ubuntu"
         })
       });
 
@@ -94,9 +93,7 @@ const Deploy = () => {
       setNewConfig({
         name: "",
         domain: "",
-        github_repo: "",
-        vm_ip: "",
-        vm_user: "ubuntu"
+        github_repo: ""
       });
       loadConfigs();
     } catch (error: any) {
@@ -113,7 +110,7 @@ const Deploy = () => {
     if (!config) return;
 
     setIsDeploying(true);
-    setDeployLog([`🚀 Деплой backend функций...`]);
+    setDeployLog([`🚀 Деплой backend функций из ${config.github_repo}...`, ""]);
 
     try {
       const resp = await fetch(API_ENDPOINTS.deployFunctions, {
@@ -135,7 +132,11 @@ const Deploy = () => {
         ...prev,
         ...data.logs || [],
         "",
-        `✅ Backend: ${data.deployed?.length || 0} функций задеплоено`
+        "🎉 ДЕПЛОЙ ЗАВЕРШЁН!",
+        `✅ Задеплоено: ${data.deployed?.length || 0} функций`,
+        `⚙️ Yandex Cloud Functions активны`,
+        "",
+        "📝 func2url.json обновлён в репозитории"
       ]);
 
       toast({
@@ -147,133 +148,6 @@ const Deploy = () => {
       setDeployLog(prev => [...prev, "", `❌ Ошибка backend: ${error.message}`]);
       toast({
         title: "Ошибка деплоя backend",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsDeploying(false);
-    }
-  };
-
-  const handleDeployFrontend = async () => {
-    if (!selectedConfig) {
-      toast({
-        title: "Ошибка",
-        description: "Выбери конфигурацию",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsDeploying(true);
-    setDeployLog([`🚀 Деплой фронтенда для конфига: ${selectedConfig}...`]);
-
-    try {
-      const resp = await fetch(API_ENDPOINTS.deploy, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          config_name: selectedConfig
-        })
-      });
-
-      const data = await resp.json();
-      
-      if (!resp.ok) {
-        throw new Error(data.error || "Ошибка деплоя фронтенда");
-      }
-
-      setDeployLog(prev => [
-        ...prev,
-        "",
-        `✅ ${data.message}`,
-        "",
-        "🎉 Фронтенд деплоится на VM!",
-        "⚠️ Убедись что webhook сервер запущен на VM"
-      ]);
-
-      toast({
-        title: "Деплой фронтенда запущен!",
-        description: data.message
-      });
-
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка деплоя фронтенда",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsDeploying(false);
-    }
-  };
-
-  const handleFullDeploy = async () => {
-    const config = configs.find(c => c.name === selectedConfig);
-    if (!config) return;
-
-    setIsDeploying(true);
-    setDeployLog([`🚀 ПОЛНЫЙ ДЕПЛОЙ: ${selectedConfig}`, ""]);
-
-    try {
-      // 1. Backend
-      setDeployLog(prev => [...prev, "📦 ШАГ 1/2: Деплой backend функций..."]);
-      
-      const backendResp = await fetch(API_ENDPOINTS.deployFunctions, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          secrets: [],
-          github_repo: config.github_repo
-        })
-      });
-
-      const backendData = await backendResp.json();
-      if (!backendResp.ok) throw new Error(backendData.error || "Ошибка деплоя backend");
-
-      setDeployLog(prev => [
-        ...prev,
-        ...backendData.logs || [],
-        `✅ Backend: ${backendData.deployed?.length || 0} функций`,
-        ""
-      ]);
-
-      // 2. Frontend
-      setDeployLog(prev => [...prev, "🎨 ШАГ 2/2: Деплой фронтенда..."]);
-      
-      const frontendResp = await fetch(API_ENDPOINTS.deploy, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          config_name: selectedConfig
-        })
-      });
-
-      const frontendData = await frontendResp.json();
-      
-      if (frontendResp.ok) {
-        setDeployLog(prev => [
-          ...prev,
-          `✅ ${frontendData.message}`,
-          "",
-          "🎉 ПОЛНЫЙ ДЕПЛОЙ ЗАВЕРШЁН!",
-          `🌐 Сайт: https://${config.domain}`,
-          `⚙️ Backend: ${backendData.deployed?.length || 0} функций`
-        ]);
-
-        toast({
-          title: "🎉 Деплой завершён!",
-          description: `Проект доступен на ${config.domain}`
-        });
-      } else {
-        throw new Error(frontendData.error || "Ошибка деплоя фронтенда");
-      }
-
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка деплоя",
         description: error.message,
         variant: "destructive"
       });
@@ -403,37 +277,37 @@ const Deploy = () => {
             <CardContent>
               {currentConfig ? (
                 <div className="space-y-6">
-                  <div className="grid md:grid-cols-2 gap-4">
+                  <div className="space-y-3">
                     <div className="space-y-1">
-                      <div className="text-xs text-slate-400">Домен</div>
-                      <div className="text-white font-mono">{currentConfig.domain}</div>
+                      <div className="text-xs text-slate-400">Домен проекта</div>
+                      <div className="text-white font-mono text-lg">{currentConfig.domain}</div>
                     </div>
                     <div className="space-y-1">
                       <div className="text-xs text-slate-400">GitHub репозиторий</div>
-                      <div className="text-white font-mono text-sm">{currentConfig.github_repo}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-slate-400">IP сервера</div>
-                      <div className="text-white font-mono">{currentConfig.vm_ip}</div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="text-xs text-slate-400">Пользователь</div>
-                      <div className="text-white font-mono">{currentConfig.vm_user}</div>
-                    </div>
-                    <div className="space-y-1 md:col-span-2">
-                      <div className="text-xs text-slate-400">Webhook URL</div>
-                      <div className="text-white font-mono text-sm">{currentConfig.vm_webhook_url}</div>
+                      <a 
+                        href={`https://github.com/${currentConfig.github_repo}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-blue-400 hover:text-blue-300 font-mono text-sm flex items-center gap-1"
+                      >
+                        {currentConfig.github_repo}
+                        <Icon name="ExternalLink" className="h-3 w-3" />
+                      </a>
                     </div>
                   </div>
 
                   <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-4">
                     <div className="text-blue-300 font-semibold flex items-center gap-2">
-                      <Icon name="Rocket" className="h-4 w-4" />
-                      Деплой проекта
+                      <Icon name="Zap" className="h-4 w-4" />
+                      Деплой Backend функций
                     </div>
                     
+                    <p className="text-slate-300 text-sm">
+                      Задеплой все backend функции из репозитория <span className="font-mono text-blue-300">{currentConfig.github_repo}</span> в Yandex Cloud Functions.
+                    </p>
+
                     <Button
-                      onClick={handleFullDeploy}
+                      onClick={handleDeployBackend}
                       disabled={isDeploying}
                       className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-bold"
                     >
@@ -444,37 +318,39 @@ const Deploy = () => {
                         </>
                       ) : (
                         <>
-                          <Icon name="Rocket" className="mr-2 h-5 w-5" />
-                          Полный деплой (Backend + Frontend)
+                          <Icon name="Zap" className="mr-2 h-5 w-5" />
+                          Задеплоить Backend
                         </>
                       )}
                     </Button>
 
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        onClick={handleDeployBackend}
-                        disabled={isDeploying}
-                        variant="outline"
-                        className="border-purple-500/50 hover:bg-purple-500/20 text-purple-300"
-                      >
-                        <Icon name="Zap" className="mr-2 h-4 w-4" />
-                        Backend
-                      </Button>
-                      <Button
-                        onClick={handleDeployFrontend}
-                        disabled={isDeploying}
-                        variant="outline"
-                        className="border-blue-500/50 hover:bg-blue-500/20 text-blue-300"
-                      >
-                        <Icon name="Globe" className="mr-2 h-4 w-4" />
-                        Frontend
-                      </Button>
+                    <div className="bg-slate-900/50 rounded-lg p-3 space-y-2">
+                      <div className="text-xs text-slate-400 font-semibold">Что деплоится:</div>
+                      <div className="space-y-1 text-xs text-slate-300">
+                        <div className="flex items-center gap-2">
+                          <Icon name="Check" className="h-3 w-3 text-green-400" />
+                          Все функции из <span className="font-mono">/backend/</span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Icon name="Check" className="h-3 w-3 text-green-400" />
+                          Развёртывание в Yandex Cloud Functions
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Icon name="Check" className="h-3 w-3 text-green-400" />
+                          Автообновление <span className="font-mono">func2url.json</span>
+                        </div>
+                      </div>
                     </div>
 
-                    <p className="text-slate-400 text-xs">
-                      💡 Backend деплоится в Yandex Cloud Functions<br />
-                      💡 Frontend отправляется на VM через webhook
-                    </p>
+                    <div className="bg-yellow-500/10 border border-yellow-500/50 rounded-lg p-3">
+                      <div className="text-yellow-300 text-xs font-semibold mb-1 flex items-center gap-1">
+                        <Icon name="Info" className="h-3 w-3" />
+                        Frontend деплой
+                      </div>
+                      <p className="text-yellow-200 text-xs">
+                        Frontend (сайт) деплоится через GitHub → Vercel/Netlify автоматически при пуше в main ветку.
+                      </p>
+                    </div>
                   </div>
 
                   {deployLog.length > 0 && (
@@ -503,31 +379,32 @@ const Deploy = () => {
             <DialogHeader>
               <DialogTitle>Новая конфигурация</DialogTitle>
               <DialogDescription className="text-slate-400">
-                Создай конфиг для деплоя на VM
+                Создай конфиг для деплоя backend функций
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 mt-4">
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="config-name">Название <span className="text-red-400">*</span></Label>
-                  <Input
-                    id="config-name"
-                    placeholder="production"
-                    value={newConfig.name}
-                    onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
-                    className="bg-slate-800 border-slate-700"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="config-domain">Домен <span className="text-red-400">*</span></Label>
-                  <Input
-                    id="config-domain"
-                    placeholder="mysite.ru"
-                    value={newConfig.domain}
-                    onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
-                    className="bg-slate-800 border-slate-700"
-                  />
-                </div>
+              <div className="space-y-2">
+                <Label htmlFor="config-name">Название <span className="text-red-400">*</span></Label>
+                <Input
+                  id="config-name"
+                  placeholder="production"
+                  value={newConfig.name}
+                  onChange={(e) => setNewConfig({...newConfig, name: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
+                <p className="text-xs text-slate-500">production, staging, development</p>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="config-domain">Домен <span className="text-red-400">*</span></Label>
+                <Input
+                  id="config-domain"
+                  placeholder="mysite.ru"
+                  value={newConfig.domain}
+                  onChange={(e) => setNewConfig({...newConfig, domain: e.target.value})}
+                  className="bg-slate-800 border-slate-700"
+                />
+                <p className="text-xs text-slate-500">Домен где будет доступен сайт</p>
               </div>
 
               <div className="space-y-2">
@@ -539,29 +416,7 @@ const Deploy = () => {
                   onChange={(e) => setNewConfig({...newConfig, github_repo: e.target.value})}
                   className="bg-slate-800 border-slate-700"
                 />
-              </div>
-
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="config-ip">IP сервера <span className="text-red-400">*</span></Label>
-                  <Input
-                    id="config-ip"
-                    placeholder="158.160.115.239"
-                    value={newConfig.vm_ip}
-                    onChange={(e) => setNewConfig({...newConfig, vm_ip: e.target.value})}
-                    className="bg-slate-800 border-slate-700"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="config-user">Пользователь</Label>
-                  <Input
-                    id="config-user"
-                    placeholder="ubuntu"
-                    value={newConfig.vm_user}
-                    onChange={(e) => setNewConfig({...newConfig, vm_user: e.target.value})}
-                    className="bg-slate-800 border-slate-700"
-                  />
-                </div>
+                <p className="text-xs text-slate-500">Репозиторий с backend функциями</p>
               </div>
 
 
