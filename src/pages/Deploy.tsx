@@ -21,6 +21,7 @@ const Deploy = () => {
   const [showVmSecrets, setShowVmSecrets] = useState(false);
   const [isUpdatingVM, setIsUpdatingVM] = useState(false);
   const [isRestartingVM, setIsRestartingVM] = useState(false);
+  const [isMigrating, setIsMigrating] = useState(false);
   const { toast } = useToast();
 
   const handleCreateVM = async () => {
@@ -146,6 +147,90 @@ const Deploy = () => {
     }
   };
 
+  const handleMigrateToYandexCloud = async () => {
+    if (!githubUrl) {
+      toast({
+        title: "Ошибка",
+        description: "Укажи GitHub URL (например: user/repo)",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    setIsMigrating(true);
+    setDeployLog(["🚀 Начинаю полную миграцию на Yandex Cloud..."]);
+
+    try {
+      // Шаг 1: Деплоим функции в Yandex Cloud
+      setDeployLog(prev => [...prev, "", "📦 Шаг 1/3: Деплою backend функции..."]);
+      const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ secrets: [] })
+      });
+
+      const deployData = await deployResp.json();
+
+      if (!deployResp.ok) {
+        throw new Error(deployData.error || "Ошибка деплоя функций");
+      }
+
+      setDeployLog(prev => [...prev, ...deployData.logs]);
+
+      if (!deployData.function_urls || Object.keys(deployData.function_urls).length === 0) {
+        throw new Error("Не получены URL функций");
+      }
+
+      // Шаг 2: Обновляем func2url.json в GitHub
+      setDeployLog(prev => [...prev, "", "🔄 Шаг 2/3: Обновляю func2url.json в GitHub..."]);
+      const updateResp = await fetch(API_ENDPOINTS.updateFunc2url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          function_urls: deployData.function_urls,
+          github_repo: githubUrl
+        })
+      });
+
+      const updateData = await updateResp.json();
+
+      if (!updateResp.ok) {
+        throw new Error(updateData.error || "Ошибка обновления func2url.json");
+      }
+
+      setDeployLog(prev => [...prev, ...updateData.logs]);
+
+      // Шаг 3: Информация о следующих шагах
+      setDeployLog(prev => [
+        ...prev,
+        "",
+        "✅ Миграция завершена!",
+        "",
+        "📋 Следующие шаги:",
+        "1. Перезапусти фронтенд (он подхватит новые URL из func2url.json)",
+        "2. Все функции теперь работают в твоём Yandex Cloud с timeout 600 сек!",
+        "",
+        `✨ Задеплоено функций: ${deployData.deployed?.length || 0}`,
+        `✨ Обновлено URL: ${updateData.updated || 0}`
+      ]);
+
+      toast({
+        title: "🎉 Миграция завершена!",
+        description: `${deployData.deployed?.length || 0} функций перенесено в твой Yandex Cloud`
+      });
+
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, "", `❌ Ошибка миграции: ${error.message}`]);
+      toast({
+        title: "Ошибка миграции",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsMigrating(false);
+    }
+  };
+
   const handleDeployFunctions = async () => {
     if (!githubUrl) {
       toast({
@@ -247,7 +332,53 @@ const Deploy = () => {
           <p className="text-muted-foreground">
             Автоматический перенос проектов в Yandex Cloud
           </p>
-          <div className="flex gap-4 justify-center">
+          
+          <Card className="bg-gradient-to-r from-purple-500/10 to-blue-500/10 border-purple-500/50">
+            <CardHeader>
+              <CardTitle className="text-2xl flex items-center gap-2">
+                <Icon name="Rocket" className="h-6 w-6" />
+                Миграция на Yandex Cloud
+              </CardTitle>
+              <CardDescription>
+                Перенеси все функции в свой Yandex Cloud за один клик. Получи timeout до 600 сек вместо 30!
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="github-migrate">GitHub репозиторий</Label>
+                <Input
+                  id="github-migrate"
+                  placeholder="username/repository"
+                  value={githubUrl}
+                  onChange={(e) => setGithubUrl(e.target.value)}
+                  disabled={isMigrating}
+                />
+              </div>
+              <Button
+                onClick={handleMigrateToYandexCloud}
+                disabled={isMigrating || !githubUrl}
+                size="lg"
+                className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700"
+              >
+                {isMigrating ? (
+                  <>
+                    <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                    Миграция в процессе...
+                  </>
+                ) : (
+                  <>
+                    <Icon name="Zap" className="mr-2 h-4 w-4" />
+                    Мигрировать на мой Yandex Cloud
+                  </>
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                ✅ Timeout 600 сек • ✅ Неограниченные вызовы • ✅ Полный контроль
+              </p>
+            </CardContent>
+          </Card>
+          
+          <div className="flex gap-4 justify-center flex-wrap">
             <Button
               onClick={handleCreateVM}
               disabled={isCreatingVM}
