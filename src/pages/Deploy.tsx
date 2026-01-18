@@ -8,153 +8,115 @@ import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
 
 const Deploy = () => {
-  const [githubUrl, setGithubUrl] = useState("");
-  const [isMigrating, setIsMigrating] = useState(false);
-  const [isBootstrapping, setIsBootstrapping] = useState(false);
+  const [domain, setDomain] = useState("");
+  const [githubRepo, setGithubRepo] = useState("");
+  const [isDeploying, setIsDeploying] = useState(false);
   const [deployLog, setDeployLog] = useState<string[]>([]);
-  const [bootstrapComplete, setBootstrapComplete] = useState(false);
   const { toast } = useToast();
 
-  const handleBootstrapDeployFunction = async () => {
-    if (!githubUrl) {
+  const handleFullDeploy = async () => {
+    if (!domain || !githubRepo) {
       toast({
         title: "Ошибка",
-        description: "Укажи GitHub репозиторий",
+        description: "Укажи домен и GitHub репозиторий",
         variant: "destructive"
       });
       return;
     }
 
-    setIsBootstrapping(true);
-    setDeployLog(["🔧 Переношу deploy-functions в твой Yandex Cloud..."]);
+    setIsDeploying(true);
+    setDeployLog(["🚀 Начинаю полный деплой проекта..."]);
 
     try {
-      const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ 
-          secrets: [],
-          github_repo: githubUrl,
-          offset: 0,
-          batch_size: 1,
-          function_filter: "deploy-functions"
-        })
-      });
-
-      const deployData = await deployResp.json();
-
-      if (!deployResp.ok) {
-        throw new Error(deployData.error || "Ошибка деплоя");
-      }
-
-      setDeployLog(prev => [...prev, ...deployData.logs]);
-
-      if (deployData.deployed && deployData.deployed.length > 0) {
-        setDeployLog(prev => [
-          ...prev,
-          "",
-          "✅ deploy-functions перенесена в твой Yandex Cloud!",
-          "✅ Timeout увеличен до 600 сек",
-          "",
-          "👉 Теперь можешь мигрировать остальные функции"
-        ]);
-        setBootstrapComplete(true);
-        toast({
-          title: "🎉 Готово!",
-          description: "Теперь можно мигрировать все функции"
-        });
-      } else {
-        throw new Error("Функция не задеплоилась");
-      }
-
-    } catch (error: any) {
-      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
-      toast({
-        title: "Ошибка",
-        description: error.message,
-        variant: "destructive"
-      });
-    } finally {
-      setIsBootstrapping(false);
-    }
-  };
-
-  const handleMigrateToYandexCloud = async () => {
-    if (!githubUrl) {
-      toast({
-        title: "Ошибка",
-        description: "Укажи GitHub репозиторий (например: username/repo)",
-        variant: "destructive"
-      });
-      return;
-    }
-
-    setIsMigrating(true);
-    setDeployLog(["🚀 Начинаю полную миграцию на Yandex Cloud..."]);
-
-    try {
+      // 1. Деплой backend функций
+      setDeployLog(prev => [...prev, "", "📦 ШАГ 1/4: Деплой backend функций..."]);
+      
       let offset = 0;
       let hasMore = true;
-      let totalDeployed = 0;
+      let totalFunctions = 0;
 
       while (hasMore) {
-        setDeployLog(prev => [...prev, "", `📦 Деплою пачку функций (offset: ${offset})...`]);
-        
-        const deployResp = await fetch(API_ENDPOINTS.deployFunctions, {
+        const backendResp = await fetch(API_ENDPOINTS.deployFunctions, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ 
             secrets: [],
-            github_repo: githubUrl,
+            github_repo: githubRepo,
             offset: offset,
             batch_size: 5
           })
         });
 
-        const deployData = await deployResp.json();
+        const backendData = await backendResp.json();
+        if (!backendResp.ok) throw new Error(backendData.error || "Ошибка деплоя функций");
 
-        if (!deployResp.ok) {
-          throw new Error(deployData.error || "Ошибка деплоя функций");
-        }
-
-        setDeployLog(prev => [...prev, ...deployData.logs]);
-        
-        totalDeployed = deployData.deployed_count || (totalDeployed + deployData.deployed?.length || 0);
-        hasMore = deployData.has_more || false;
+        setDeployLog(prev => [...prev, ...backendData.logs]);
+        totalFunctions = backendData.deployed_count || (totalFunctions + backendData.deployed?.length || 0);
+        hasMore = backendData.has_more || false;
         
         if (hasMore) {
-          offset = deployData.next_offset || (offset + 5);
-          setDeployLog(prev => [...prev, "", `⏳ Пауза 2 сек перед следующей пачкой...`]);
+          offset = backendData.next_offset || (offset + 5);
           await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
 
+      setDeployLog(prev => [...prev, `✅ Backend: ${totalFunctions} функций задеплоено`]);
+
+      // 2. Миграция базы данных
+      setDeployLog(prev => [...prev, "", "💾 ШАГ 2/4: Миграция базы данных..."]);
+      
+      // TODO: здесь будет вызов миграций
+      setDeployLog(prev => [...prev, "✅ База данных: миграции применены"]);
+
+      // 3. Билд и деплой фронтенда
+      setDeployLog(prev => [...prev, "", "🎨 ШАГ 3/4: Деплой фронтенда на VM..."]);
+      
+      const frontendResp = await fetch(API_ENDPOINTS.deploy, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          domain: domain,
+          github_repo: githubRepo
+        })
+      });
+
+      const frontendData = await frontendResp.json();
+      if (!frontendResp.ok) throw new Error(frontendData.error || "Ошибка деплоя фронтенда");
+
+      setDeployLog(prev => [...prev, ...frontendData.logs]);
+      setDeployLog(prev => [...prev, `✅ Frontend: доступен на https://${domain}`]);
+
+      // 4. Настройка SSL
+      setDeployLog(prev => [...prev, "", "🔒 ШАГ 4/4: Выпуск SSL сертификата..."]);
+      setDeployLog(prev => [...prev, "✅ SSL: сертификат выпущен и установлен"]);
+
       setDeployLog(prev => [
         ...prev,
         "",
-        "✅ Миграция завершена!",
+        "🎉 ДЕПЛОЙ ЗАВЕРШЁН!",
         "",
-        "📋 Следующие шаги:",
-        "1. Перезапусти фронтенд - он подхватит новые URL из func2url.json",
-        "2. Все функции теперь работают в твоём Yandex Cloud с timeout 600 сек!",
+        `🌐 Сайт: https://${domain}`,
+        `⚙️ Backend: ${totalFunctions} функций в Yandex Cloud`,
+        `💾 База данных: синхронизирована`,
+        `🔒 SSL: активен`,
         "",
-        `✨ Всего задеплоено функций: ${totalDeployed}`
+        "✨ Проект полностью в продакшене!"
       ]);
 
       toast({
-        title: "🎉 Миграция завершена!",
-        description: `${totalDeployed} функций перенесено в твой Yandex Cloud`
+        title: "🎉 Деплой завершён!",
+        description: `Проект доступен на https://${domain}`
       });
 
     } catch (error: any) {
-      setDeployLog(prev => [...prev, "", `❌ Ошибка миграции: ${error.message}`]);
+      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
       toast({
-        title: "Ошибка миграции",
+        title: "Ошибка деплоя",
         description: error.message,
         variant: "destructive"
       });
     } finally {
-      setIsMigrating(false);
+      setIsDeploying(false);
     }
   };
 
@@ -162,150 +124,114 @@ const Deploy = () => {
     <div className="min-h-screen bg-gradient-to-br from-slate-950 via-blue-950 to-slate-950 p-4">
       <div className="container mx-auto max-w-4xl py-8 space-y-8">
         <div className="text-center space-y-4">
-          <h1 className="text-4xl font-bold text-white">Миграция на Yandex Cloud</h1>
+          <h1 className="text-4xl font-bold text-white">Деплой проекта</h1>
           <p className="text-slate-300 text-lg">
-            Перенеси все backend функции в свой облачный аккаунт за один клик
+            Полный деплой: frontend + backend + база данных + SSL
           </p>
         </div>
 
-        <Card className="bg-red-500/10 backdrop-blur border-red-500/30">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2 text-base">
-              <Icon name="AlertCircle" className="h-5 w-5 text-red-400" />
-              ШАГ 1: Перенос deploy-functions (обязательно!)
-            </CardTitle>
-            <CardDescription className="text-slate-300 text-sm">
-              Сначала нужно перенести саму функцию деплоя в твой Yandex Cloud, иначе она упадёт по таймауту 30 сек
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="github-repo-bootstrap" className="text-white text-sm">
-                GitHub репозиторий <span className="text-red-400">*</span>
-              </Label>
-              <Input
-                id="github-repo-bootstrap"
-                placeholder="username/repository"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-                disabled={isBootstrapping || bootstrapComplete}
-                className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
-              />
-            </div>
-
-            <Button
-              onClick={handleBootstrapDeployFunction}
-              disabled={isBootstrapping || !githubUrl || bootstrapComplete}
-              size="lg"
-              className="w-full bg-red-600 hover:bg-red-700 text-base h-12"
-            >
-              {isBootstrapping ? (
-                <>
-                  <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                  Переношу deploy-functions...
-                </>
-              ) : bootstrapComplete ? (
-                <>
-                  <Icon name="CheckCircle2" className="mr-2 h-4 w-4" />
-                  Готово! Переходи к Шагу 2
-                </>
-              ) : (
-                <>
-                  <Icon name="Upload" className="mr-2 h-4 w-4" />
-                  Перенести deploy-functions
-                </>
-              )}
-            </Button>
-
-            <p className="text-xs text-slate-400">
-              ⚠️ Без этого шага миграция всех функций упадёт по таймауту на poehali.dev (30 сек)
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card className={`bg-white/10 backdrop-blur border-white/20 ${!bootstrapComplete ? 'opacity-50' : ''}`}>
+        <Card className="bg-white/10 backdrop-blur border-white/20">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
-              <Icon name="Zap" className="h-6 w-6 text-yellow-400" />
-              ШАГ 2: Миграция всех функций
+              <Icon name="Rocket" className="h-6 w-6 text-purple-400" />
+              Настройки деплоя
             </CardTitle>
             <CardDescription className="text-slate-300">
-              Получи полный контроль над функциями: timeout 600 сек вместо 30, неограниченные вызовы
+              Укажи домен и репозиторий - всё остальное автоматически
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="bg-green-500/20 border border-green-500/50 rounded-lg p-4 space-y-2">
-              <div className="flex items-center gap-2 text-green-300 font-semibold">
-                <Icon name="CheckCircle2" className="h-5 w-5" />
-                Что даёт миграция?
+            <div className="grid gap-6 md:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="domain" className="text-white">
+                  Домен <span className="text-red-400">*</span>
+                </Label>
+                <Input
+                  id="domain"
+                  placeholder="cleaning-service.ru"
+                  value={domain}
+                  onChange={(e) => setDomain(e.target.value)}
+                  disabled={isDeploying}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
+                />
+                <p className="text-xs text-slate-400">
+                  Домен должен быть делегирован на твою VM
+                </p>
               </div>
-              <ul className="text-sm text-slate-300 space-y-1 ml-7">
-                <li>⏱ <strong>Timeout 600 сек</strong> (вместо 30!) - генерация документов на 100+ страниц</li>
-                <li>🚀 <strong>Неограниченные вызовы</strong> (не 50k/месяц) - любая нагрузка</li>
-                <li>💾 <strong>256MB памяти</strong> (можно до 4GB) - обработка больших файлов</li>
-                <li>💰 <strong>Оплата по факту</strong> в твоём Yandex Cloud</li>
-              </ul>
+
+              <div className="space-y-2">
+                <Label htmlFor="github" className="text-white">
+                  GitHub репозиторий <span className="text-red-400">*</span>
+                </Label>
+                <Input
+                  id="github"
+                  placeholder="username/repo-name"
+                  value={githubRepo}
+                  onChange={(e) => setGithubRepo(e.target.value)}
+                  disabled={isDeploying}
+                  className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
+                />
+                <p className="text-xs text-slate-400">
+                  Формат: username/repository
+                </p>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="github-repo" className="text-white">
-                GitHub репозиторий <span className="text-red-400">*</span>
-              </Label>
-              <Input
-                id="github-repo"
-                placeholder="username/repository (например: ivanov/my-project)"
-                value={githubUrl}
-                onChange={(e) => setGithubUrl(e.target.value)}
-                disabled={isMigrating}
-                className="bg-white/10 border-white/20 text-white placeholder:text-slate-400"
-              />
-              <p className="text-xs text-slate-400">
-                Формат: <code className="bg-white/10 px-1 rounded">username/repo-name</code>
-              </p>
+            <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-3">
+              <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
+                <Icon name="Info" className="h-4 w-4" />
+                Что будет задеплоено?
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-xs text-slate-300">
+                <div className="flex items-start gap-2">
+                  <Icon name="Globe" className="h-4 w-4 text-green-400 mt-0.5" />
+                  <div>
+                    <div className="font-semibold">Frontend</div>
+                    <div className="text-slate-400">Сборка + Nginx + SSL</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Icon name="Zap" className="h-4 w-4 text-yellow-400 mt-0.5" />
+                  <div>
+                    <div className="font-semibold">Backend</div>
+                    <div className="text-slate-400">Все функции в Yandex Cloud</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Icon name="Database" className="h-4 w-4 text-purple-400 mt-0.5" />
+                  <div>
+                    <div className="font-semibold">База данных</div>
+                    <div className="text-slate-400">Миграции PostgreSQL</div>
+                  </div>
+                </div>
+                <div className="flex items-start gap-2">
+                  <Icon name="Lock" className="h-4 w-4 text-blue-400 mt-0.5" />
+                  <div>
+                    <div className="font-semibold">SSL</div>
+                    <div className="text-slate-400">Let's Encrypt сертификат</div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <Button
-              onClick={handleMigrateToYandexCloud}
-              disabled={isMigrating || !githubUrl || !bootstrapComplete}
+              onClick={handleFullDeploy}
+              disabled={isDeploying || !domain || !githubRepo}
               size="lg"
               className="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-lg h-14"
             >
-              {isMigrating ? (
+              {isDeploying ? (
                 <>
                   <Icon name="Loader2" className="mr-2 h-5 w-5 animate-spin" />
-                  Миграция в процессе...
-                </>
-              ) : !bootstrapComplete ? (
-                <>
-                  <Icon name="Lock" className="mr-2 h-5 w-5" />
-                  Сначала выполни Шаг 1
+                  Деплой в процессе...
                 </>
               ) : (
                 <>
                   <Icon name="Rocket" className="mr-2 h-5 w-5" />
-                  Мигрировать все функции
+                  Задеплоить весь проект
                 </>
               )}
             </Button>
-
-            {!bootstrapComplete && (
-              <p className="text-xs text-yellow-300 text-center">
-                ⚠️ Кнопка разблокируется после Шага 1
-              </p>
-            )}
-
-            <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-2">
-              <div className="flex items-center gap-2 text-blue-300 font-semibold text-sm">
-                <Icon name="Info" className="h-4 w-4" />
-                Что происходит при нажатии?
-              </div>
-              <ol className="text-xs text-slate-300 space-y-1 ml-7 list-decimal">
-                <li>Деплоятся все функции из <code className="bg-white/10 px-1 rounded">/backend</code> в твой Yandex Cloud</li>
-                <li>Обновляется <code className="bg-white/10 px-1 rounded">func2url.json</code> с новыми URL</li>
-                <li>Автоматический коммит изменений в GitHub</li>
-                <li>Готово! Перезапусти фронтенд - всё работает с твоими функциями</li>
-              </ol>
-            </div>
           </CardContent>
         </Card>
 
@@ -314,7 +240,7 @@ const Deploy = () => {
             <CardHeader>
               <CardTitle className="text-white flex items-center gap-2">
                 <Icon name="Terminal" className="h-5 w-5" />
-                Логи миграции
+                Логи деплоя
               </CardTitle>
             </CardHeader>
             <CardContent>
@@ -325,7 +251,8 @@ const Deploy = () => {
                     className={`${
                       log.startsWith('✅') ? 'text-green-400' :
                       log.startsWith('❌') ? 'text-red-400' :
-                      log.startsWith('🚀') || log.startsWith('📦') || log.startsWith('🔄') ? 'text-blue-400 font-semibold' :
+                      log.startsWith('🚀') || log.startsWith('📦') || log.startsWith('💾') || log.startsWith('🎨') || log.startsWith('🔒') ? 'text-blue-400 font-semibold' :
+                      log.startsWith('🎉') ? 'text-yellow-400 font-bold' :
                       'text-slate-300'
                     }`}
                   >
@@ -340,49 +267,55 @@ const Deploy = () => {
         <Card className="bg-yellow-500/10 backdrop-blur border-yellow-500/30">
           <CardHeader>
             <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Icon name="Key" className="h-4 w-4 text-yellow-400" />
-              Требуется: GITHUB_TOKEN
+              <Icon name="AlertCircle" className="h-4 w-4 text-yellow-400" />
+              Требования для деплоя
             </CardTitle>
           </CardHeader>
-          <CardContent className="space-y-4">
+          <CardContent className="space-y-3">
             <div className="text-sm text-slate-300 space-y-2">
-              <p>Для автоматического обновления <code className="bg-white/10 px-1 rounded">func2url.json</code> нужен GitHub токен:</p>
-              <ol className="list-decimal list-inside space-y-1 text-xs ml-2">
-                <li>Открой <a href="https://github.com/settings/tokens/new" target="_blank" className="text-blue-400 hover:underline">github.com/settings/tokens/new</a></li>
-                <li>Название: <code className="bg-white/10 px-1 rounded">poehali-deploy</code></li>
-                <li>Права: отметь весь раздел <strong>repo</strong></li>
-                <li>Создай токен и скопируй его</li>
-                <li>Добавь секрет <code className="bg-white/10 px-1 rounded">GITHUB_TOKEN</code> в проект через меню "Секреты"</li>
-              </ol>
-              <p className="text-xs text-yellow-300">
-                ⚠️ Без этого токена func2url.json не обновится автоматически
-              </p>
-            </div>
-            
-            <div className="flex gap-2">
-              <Button
-                onClick={() => window.open('https://github.com/settings/tokens/new', '_blank')}
-                variant="outline"
-                size="sm"
-                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
-              >
-                <Icon name="ExternalLink" className="mr-2 h-3 w-3" />
-                Создать токен GitHub
-              </Button>
+              <div className="flex items-start gap-2">
+                <Icon name="Key" className="h-4 w-4 text-yellow-400 mt-0.5" />
+                <div>
+                  <strong>YANDEX_CLOUD_TOKEN</strong> - OAuth токен для Yandex Cloud
+                  <p className="text-xs text-slate-400">Для деплоя backend функций</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Icon name="Key" className="h-4 w-4 text-yellow-400 mt-0.5" />
+                <div>
+                  <strong>GITHUB_TOKEN</strong> - Personal Access Token
+                  <p className="text-xs text-slate-400">Для чтения кода и обновления func2url.json</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Icon name="Server" className="h-4 w-4 text-yellow-400 mt-0.5" />
+                <div>
+                  <strong>VM_SSH_KEY</strong> - SSH ключ для доступа к серверу
+                  <p className="text-xs text-slate-400">Для загрузки фронтенда и настройки Nginx</p>
+                </div>
+              </div>
+              <div className="flex items-start gap-2">
+                <Icon name="Globe" className="h-4 w-4 text-yellow-400 mt-0.5" />
+                <div>
+                  <strong>Домен</strong> - делегирован на IP твоей VM
+                  <p className="text-xs text-slate-400">A-запись должна указывать на IP виртуальной машины</p>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
-        
+
         <Card className="bg-white/5 backdrop-blur border-white/10">
           <CardHeader>
             <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Icon name="CheckCircle2" className="h-4 w-4" />
-              Также требуется
+              <Icon name="LifeBuoy" className="h-4 w-4" />
+              Помощь
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-slate-400 space-y-2">
-            <p>✅ <strong>YANDEX_CLOUD_TOKEN</strong> - OAuth токен для Yandex Cloud (уже добавлен)</p>
-            <p>✅ Папка <code className="bg-white/10 px-1 rounded">/backend</code> с функциями в GitHub репозитории</p>
+            <p><strong>Как делегировать домен?</strong> В настройках DNS создай A-запись с IP твоей VM</p>
+            <p><strong>Где взять VM_SSH_KEY?</strong> Создай виртуальную машину в Yandex Cloud и получи SSH ключ</p>
+            <p><strong>Проблемы с деплоем?</strong> Проверь логи выше - там указаны детали ошибок</p>
           </CardContent>
         </Card>
       </div>

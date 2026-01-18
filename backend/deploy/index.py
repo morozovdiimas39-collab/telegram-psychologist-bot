@@ -1,14 +1,14 @@
 import json
 import os
 import requests
-from typing import Dict, List
+import base64
+import subprocess
+import tempfile
+from pathlib import Path
 
 
 def handler(event: dict, context) -> dict:
-    """
-    API для приёма заявок на деплой проектов.
-    Отправляет webhook на сервер деплоя или сохраняет в очередь.
-    """
+    """Полный деплой фронтенда: билд проекта + загрузка на VM + настройка Nginx + SSL"""
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -23,86 +23,215 @@ def handler(event: dict, context) -> dict:
             'isBase64Encoded': False
         }
 
-    if method != 'POST':
-        return {
-            'statusCode': 405,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': 'Method not allowed'}),
-            'isBase64Encoded': False
-        }
-
     try:
         body = json.loads(event.get('body', '{}'))
-        github_url = body.get('githubUrl', '').strip()
-        project_name = body.get('projectName', '').strip()
         domain = body.get('domain', '').strip()
+        github_repo = body.get('github_repo', '').strip()
         
-        # Получаем секреты из окружения
-        secrets_list = []
-        for key in os.environ:
-            if key not in ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'DATABASE_URL', 'VM_WEBHOOK_URL', 'VM_IP_ADDRESS', 'YANDEX_CLOUD_TOKEN']:
-                secrets_list.append({'name': key, 'value': os.environ[key]})
-
-        if not github_url or not project_name or not domain:
-            return {
-                'statusCode': 400,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'Missing required fields'}),
-                'isBase64Encoded': False
-            }
-
-        vm_webhook_url = os.environ.get('VM_WEBHOOK_URL')
+        vm_ip = os.environ.get('VM_IP_ADDRESS')
+        vm_user = os.environ.get('VM_USER', 'ubuntu')
+        ssh_key = os.environ.get('VM_SSH_KEY')
+        github_token = os.environ.get('GITHUB_TOKEN')
         
         logs = []
-        logs.append("✅ Заявка получена")
-        logs.append(f"📦 Проект: {project_name}")
-        logs.append(f"🔗 GitHub: {github_url}")
-        logs.append(f"🌐 Домен: {domain}")
-        logs.append(f"🔐 Секретов: {len(secrets_list)}")
-
-        if vm_webhook_url:
-            logs.append("📡 Отправляю запрос на сервер деплоя...")
+        
+        if not domain or not github_repo:
+            raise ValueError("domain и github_repo обязательны")
+        
+        if not vm_ip or not ssh_key:
+            raise ValueError("VM_IP_ADDRESS и VM_SSH_KEY должны быть в секретах")
+        
+        logs.append(f"🎨 Начинаю деплой фронтенда для {domain}")
+        logs.append(f"📦 Репозиторий: {github_repo}")
+        logs.append(f"🖥️ VM: {vm_ip}")
+        
+        # 1. Клонируем репозиторий
+        logs.append("")
+        logs.append("📥 Клонирую репозиторий из GitHub...")
+        
+        with tempfile.TemporaryDirectory() as tmpdir:
+            clone_url = f"https://{github_token}@github.com/{github_repo}.git" if github_token else f"https://github.com/{github_repo}.git"
+            
+            result = subprocess.run(
+                ['git', 'clone', '--depth', '1', clone_url, tmpdir],
+                capture_output=True,
+                text=True,
+                timeout=60
+            )
+            
+            if result.returncode != 0:
+                raise ValueError(f"Ошибка клонирования: {result.stderr}")
+            
+            logs.append("✅ Репозиторий склонирован")
+            
+            # 2. Устанавливаем зависимости и билдим
+            logs.append("")
+            logs.append("📦 Устанавливаю зависимости...")
+            
+            result = subprocess.run(
+                ['bun', 'install'],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+            
+            if result.returncode != 0:
+                raise ValueError(f"Ошибка установки зависимостей: {result.stderr}")
+            
+            logs.append("✅ Зависимости установлены")
+            logs.append("")
+            logs.append("🔨 Билдю проект...")
+            
+            result = subprocess.run(
+                ['bun', 'run', 'build'],
+                cwd=tmpdir,
+                capture_output=True,
+                text=True,
+                timeout=180
+            )
+            
+            if result.returncode != 0:
+                raise ValueError(f"Ошибка билда: {result.stderr}")
+            
+            logs.append("✅ Проект собран")
+            
+            # 3. Загружаем на VM
+            logs.append("")
+            logs.append("📤 Загружаю на VM...")
+            
+            # Сохраняем SSH ключ
+            with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.pem') as key_file:
+                key_file.write(ssh_key)
+                key_path = key_file.name
+            
+            os.chmod(key_path, 0o600)
+            
             try:
-                response = requests.post(
-                    vm_webhook_url,
-                    json={
-                        'github_url': github_url,
-                        'project_name': project_name,
-                        'domain': domain,
-                        'secrets': secrets_list
-                    },
-                    timeout=10
+                # Создаём директорию на VM
+                project_dir = f"/var/www/{domain}"
+                
+                subprocess.run(
+                    ['ssh', '-i', key_path, '-o', 'StrictHostKeyChecking=no',
+                     f"{vm_user}@{vm_ip}",
+                     f"sudo mkdir -p {project_dir} && sudo chown {vm_user}:{vm_user} {project_dir}"],
+                    check=True,
+                    timeout=30
                 )
                 
-                if response.status_code == 200:
-                    logs.append("✅ Деплой запущен на сервере")
-                    logs.append("⏳ Процесс может занять 5-10 минут")
-                    return {
-                        'statusCode': 200,
-                        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                        'body': json.dumps({'success': True, 'logs': logs}),
-                        'isBase64Encoded': False
-                    }
+                # Загружаем dist
+                dist_path = Path(tmpdir) / 'dist'
+                if not dist_path.exists():
+                    raise ValueError("Папка dist не найдена после билда")
+                
+                result = subprocess.run(
+                    ['rsync', '-avz', '-e', f'ssh -i {key_path} -o StrictHostKeyChecking=no',
+                     f"{dist_path}/", f"{vm_user}@{vm_ip}:{project_dir}/"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode != 0:
+                    raise ValueError(f"Ошибка rsync: {result.stderr}")
+                
+                logs.append("✅ Файлы загружены на VM")
+                
+                # 4. Настраиваем Nginx
+                logs.append("")
+                logs.append("⚙️ Настраиваю Nginx...")
+                
+                nginx_config = f"""server {{
+    listen 80;
+    server_name {domain};
+    
+    root {project_dir};
+    index index.html;
+    
+    location / {{
+        try_files $uri $uri/ /index.html;
+    }}
+    
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg|woff|woff2|ttf|eot)$ {{
+        expires 1y;
+        add_header Cache-Control "public, immutable";
+    }}
+}}"""
+                
+                # Записываем конфиг
+                subprocess.run(
+                    ['ssh', '-i', key_path, '-o', 'StrictHostKeyChecking=no',
+                     f"{vm_user}@{vm_ip}",
+                     f"echo '{nginx_config}' | sudo tee /etc/nginx/sites-available/{domain}"],
+                    check=True,
+                    timeout=30
+                )
+                
+                # Активируем конфиг
+                subprocess.run(
+                    ['ssh', '-i', key_path, '-o', 'StrictHostKeyChecking=no',
+                     f"{vm_user}@{vm_ip}",
+                     f"sudo ln -sf /etc/nginx/sites-available/{domain} /etc/nginx/sites-enabled/ && sudo nginx -t && sudo systemctl reload nginx"],
+                    check=True,
+                    timeout=30
+                )
+                
+                logs.append("✅ Nginx настроен")
+                
+                # 5. Устанавливаем SSL
+                logs.append("")
+                logs.append("🔒 Выпускаю SSL сертификат...")
+                
+                result = subprocess.run(
+                    ['ssh', '-i', key_path, '-o', 'StrictHostKeyChecking=no',
+                     f"{vm_user}@{vm_ip}",
+                     f"sudo certbot --nginx -d {domain} --non-interactive --agree-tos --email admin@{domain} --redirect"],
+                    capture_output=True,
+                    text=True,
+                    timeout=120
+                )
+                
+                if result.returncode == 0:
+                    logs.append("✅ SSL сертификат установлен")
                 else:
-                    logs.append(f"⚠️ Сервер вернул код: {response.status_code}")
-            except requests.RequestException as e:
-                logs.append(f"⚠️ Ошибка подключения к серверу: {str(e)}")
+                    logs.append("⚠️ Ошибка SSL - проверь делегирование домена")
+                    logs.append(f"   {result.stderr[:200]}")
+                
+            finally:
+                os.unlink(key_path)
         
-        logs.append("ℹ️ VM_WEBHOOK_URL не настроен")
-        logs.append("💡 Используй скрипт deploy.py локально для ручного деплоя")
-        logs.append(f"💡 Команда: python deploy.py --github {github_url} --name {project_name} --domain {domain}")
+        logs.append("")
+        logs.append(f"🎉 Деплой завершён!")
+        logs.append(f"🌐 Сайт доступен: https://{domain}")
         
         return {
-            'statusCode': 202,
+            'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'success': True, 'logs': logs, 'manual_deploy_required': True}),
+            'body': json.dumps({
+                'success': True,
+                'logs': logs,
+                'url': f"https://{domain}"
+            }),
             'isBase64Encoded': False
         }
-
+        
+    except subprocess.TimeoutExpired:
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({
+                'error': 'Timeout - операция заняла слишком много времени',
+                'logs': logs if 'logs' in locals() else []
+            }),
+            'isBase64Encoded': False
+        }
     except Exception as e:
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'error': str(e)}),
+            'body': json.dumps({
+                'error': str(e),
+                'logs': logs if 'logs' in locals() else []
+            }),
             'isBase64Encoded': False
         }
