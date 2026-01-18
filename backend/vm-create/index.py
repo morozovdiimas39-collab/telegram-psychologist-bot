@@ -125,6 +125,9 @@ def handler(event: dict, context) -> dict:
         # Получаем folder_id из списка каталогов
         folder_id = get_folder_id(iam_token)
         
+        # Получаем subnet_id для zone ru-central1-a
+        subnet_id = get_subnet_id(iam_token, folder_id, 'ru-central1-a')
+        
         # Генерируем SSH ключ (публичный)
         ssh_pub_key = generate_ssh_key_pair()
         
@@ -150,7 +153,7 @@ def handler(event: dict, context) -> dict:
                 }
             },
             "networkInterfaceSpecs": [{
-                "subnetId": os.environ.get('YANDEX_SUBNET_ID', 'e9b95m6ai9kv8r1tjf4l'),
+                "subnetId": subnet_id,
                 "primaryV4AddressSpec": {
                     "oneToOneNatSpec": {
                         "ipVersion": "IPV4"
@@ -352,6 +355,75 @@ def get_folder_id(iam_token: str) -> str:
         raise Exception('Нет доступных каталогов в облаке')
     
     return folders[0]['id']
+
+
+def get_subnet_id(iam_token: str, folder_id: str, zone_id: str) -> str:
+    """Получить subnet_id для указанной зоны или создать новую сеть"""
+    headers = {'Authorization': f'Bearer {iam_token}'}
+    
+    # Получаем список сетей
+    networks_response = requests.get(
+        f'https://vpc.api.cloud.yandex.net/vpc/v1/networks?folderId={folder_id}',
+        headers=headers,
+        timeout=10
+    )
+    
+    if networks_response.status_code != 200:
+        raise Exception(f'Ошибка получения списка сетей: {networks_response.text}')
+    
+    networks = networks_response.json().get('networks', [])
+    
+    # Если нет сетей, создаём новую
+    if not networks:
+        create_network_response = requests.post(
+            'https://vpc.api.cloud.yandex.net/vpc/v1/networks',
+            headers={**headers, 'Content-Type': 'application/json'},
+            json={'folderId': folder_id, 'name': 'default-network'},
+            timeout=10
+        )
+        
+        if create_network_response.status_code not in [200, 201]:
+            raise Exception(f'Ошибка создания сети: {create_network_response.text}')
+        
+        network_id = create_network_response.json()['response']['id']
+    else:
+        network_id = networks[0]['id']
+    
+    # Получаем список подсетей
+    subnets_response = requests.get(
+        f'https://vpc.api.cloud.yandex.net/vpc/v1/subnets?folderId={folder_id}',
+        headers=headers,
+        timeout=10
+    )
+    
+    if subnets_response.status_code != 200:
+        raise Exception(f'Ошибка получения списка подсетей: {subnets_response.text}')
+    
+    subnets = subnets_response.json().get('subnets', [])
+    
+    # Ищем подсеть в нужной зоне
+    for subnet in subnets:
+        if subnet.get('zoneId') == zone_id:
+            return subnet['id']
+    
+    # Если нет подсети в нужной зоне, создаём
+    create_subnet_response = requests.post(
+        'https://vpc.api.cloud.yandex.net/vpc/v1/subnets',
+        headers={**headers, 'Content-Type': 'application/json'},
+        json={
+            'folderId': folder_id,
+            'name': f'subnet-{zone_id}',
+            'networkId': network_id,
+            'zoneId': zone_id,
+            'v4CidrBlocks': ['10.128.0.0/24']
+        },
+        timeout=10
+    )
+    
+    if create_subnet_response.status_code not in [200, 201]:
+        raise Exception(f'Ошибка создания подсети: {create_subnet_response.text}')
+    
+    return create_subnet_response.json()['response']['id']
 
 
 def get_cloud_init_script(ssh_pub_key: str) -> str:
