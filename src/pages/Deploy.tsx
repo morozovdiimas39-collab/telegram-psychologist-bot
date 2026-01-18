@@ -108,7 +108,54 @@ const Deploy = () => {
     }
   };
 
-  const handleDeploy = async () => {
+  const handleDeployBackend = async () => {
+    const config = configs.find(c => c.name === selectedConfig);
+    if (!config) return;
+
+    setIsDeploying(true);
+    setDeployLog([`🚀 Деплой backend функций...`]);
+
+    try {
+      const resp = await fetch(API_ENDPOINTS.deployFunctions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          secrets: [],
+          github_repo: config.github_repo
+        })
+      });
+
+      const data = await resp.json();
+      
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка деплоя backend");
+      }
+
+      setDeployLog(prev => [
+        ...prev,
+        ...data.logs || [],
+        "",
+        `✅ Backend: ${data.deployed?.length || 0} функций задеплоено`
+      ]);
+
+      toast({
+        title: "Backend задеплоен!",
+        description: `${data.deployed?.length || 0} функций в Yandex Cloud`
+      });
+
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, "", `❌ Ошибка backend: ${error.message}`]);
+      toast({
+        title: "Ошибка деплоя backend",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const handleDeployFrontend = async () => {
     if (!selectedConfig) {
       toast({
         title: "Ошибка",
@@ -119,7 +166,7 @@ const Deploy = () => {
     }
 
     setIsDeploying(true);
-    setDeployLog([`🚀 Начинаю деплой конфига: ${selectedConfig}...`]);
+    setDeployLog([`🚀 Деплой фронтенда для конфига: ${selectedConfig}...`]);
 
     try {
       const resp = await fetch(API_ENDPOINTS.deploy, {
@@ -133,7 +180,7 @@ const Deploy = () => {
       const data = await resp.json();
       
       if (!resp.ok) {
-        throw new Error(data.error || "Ошибка деплоя");
+        throw new Error(data.error || "Ошибка деплоя фронтенда");
       }
 
       setDeployLog(prev => [
@@ -141,14 +188,87 @@ const Deploy = () => {
         "",
         `✅ ${data.message}`,
         "",
-        "🎉 Деплой запущен на VM!",
-        "Следи за прогрессом на сервере"
+        "🎉 Фронтенд деплоится на VM!",
+        "⚠️ Убедись что webhook сервер запущен на VM"
       ]);
 
       toast({
-        title: "Деплой запущен!",
+        title: "Деплой фронтенда запущен!",
         description: data.message
       });
+
+    } catch (error: any) {
+      setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
+      toast({
+        title: "Ошибка деплоя фронтенда",
+        description: error.message,
+        variant: "destructive"
+      });
+    } finally {
+      setIsDeploying(false);
+    }
+  };
+
+  const handleFullDeploy = async () => {
+    const config = configs.find(c => c.name === selectedConfig);
+    if (!config) return;
+
+    setIsDeploying(true);
+    setDeployLog([`🚀 ПОЛНЫЙ ДЕПЛОЙ: ${selectedConfig}`, ""]);
+
+    try {
+      // 1. Backend
+      setDeployLog(prev => [...prev, "📦 ШАГ 1/2: Деплой backend функций..."]);
+      
+      const backendResp = await fetch(API_ENDPOINTS.deployFunctions, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          secrets: [],
+          github_repo: config.github_repo
+        })
+      });
+
+      const backendData = await backendResp.json();
+      if (!backendResp.ok) throw new Error(backendData.error || "Ошибка деплоя backend");
+
+      setDeployLog(prev => [
+        ...prev,
+        ...backendData.logs || [],
+        `✅ Backend: ${backendData.deployed?.length || 0} функций`,
+        ""
+      ]);
+
+      // 2. Frontend
+      setDeployLog(prev => [...prev, "🎨 ШАГ 2/2: Деплой фронтенда..."]);
+      
+      const frontendResp = await fetch(API_ENDPOINTS.deploy, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          config_name: selectedConfig
+        })
+      });
+
+      const frontendData = await frontendResp.json();
+      
+      if (frontendResp.ok) {
+        setDeployLog(prev => [
+          ...prev,
+          `✅ ${frontendData.message}`,
+          "",
+          "🎉 ПОЛНЫЙ ДЕПЛОЙ ЗАВЕРШЁН!",
+          `🌐 Сайт: https://${config.domain}`,
+          `⚙️ Backend: ${backendData.deployed?.length || 0} функций`
+        ]);
+
+        toast({
+          title: "🎉 Деплой завершён!",
+          description: `Проект доступен на ${config.domain}`
+        });
+      } else {
+        throw new Error(frontendData.error || "Ошибка деплоя фронтенда");
+      }
 
     } catch (error: any) {
       setDeployLog(prev => [...prev, "", `❌ Ошибка: ${error.message}`]);
@@ -306,16 +426,14 @@ const Deploy = () => {
                     </div>
                   </div>
 
-                  <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4">
-                    <div className="text-blue-300 font-semibold mb-2 flex items-center gap-2">
+                  <div className="bg-blue-500/20 border border-blue-500/50 rounded-lg p-4 space-y-4">
+                    <div className="text-blue-300 font-semibold flex items-center gap-2">
                       <Icon name="Rocket" className="h-4 w-4" />
-                      Деплой
+                      Деплой проекта
                     </div>
-                    <p className="text-slate-300 text-sm mb-4">
-                      Нажми кнопку чтобы задеплоить фронтенд на VM. Backend функции деплоятся отдельно через sync_backend.
-                    </p>
+                    
                     <Button
-                      onClick={handleDeploy}
+                      onClick={handleFullDeploy}
                       disabled={isDeploying}
                       className="w-full bg-gradient-to-r from-purple-500 to-blue-500 hover:from-purple-600 hover:to-blue-600 text-white font-bold"
                     >
@@ -327,10 +445,36 @@ const Deploy = () => {
                       ) : (
                         <>
                           <Icon name="Rocket" className="mr-2 h-5 w-5" />
-                          Задеплоить фронтенд
+                          Полный деплой (Backend + Frontend)
                         </>
                       )}
                     </Button>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <Button
+                        onClick={handleDeployBackend}
+                        disabled={isDeploying}
+                        variant="outline"
+                        className="border-purple-500/50 hover:bg-purple-500/20 text-purple-300"
+                      >
+                        <Icon name="Zap" className="mr-2 h-4 w-4" />
+                        Backend
+                      </Button>
+                      <Button
+                        onClick={handleDeployFrontend}
+                        disabled={isDeploying}
+                        variant="outline"
+                        className="border-blue-500/50 hover:bg-blue-500/20 text-blue-300"
+                      >
+                        <Icon name="Globe" className="mr-2 h-4 w-4" />
+                        Frontend
+                      </Button>
+                    </div>
+
+                    <p className="text-slate-400 text-xs">
+                      💡 Backend деплоится в Yandex Cloud Functions<br />
+                      💡 Frontend отправляется на VM через webhook
+                    </p>
                   </div>
 
                   {deployLog.length > 0 && (
