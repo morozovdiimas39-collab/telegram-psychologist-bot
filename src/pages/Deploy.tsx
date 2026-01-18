@@ -3,7 +3,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
@@ -35,8 +34,7 @@ const Deploy = () => {
     domain: "",
     github_repo: "",
     vm_ip: "",
-    vm_user: "ubuntu",
-    vm_ssh_key: ""
+    vm_user: "ubuntu"
   });
 
   useEffect(() => {
@@ -63,7 +61,7 @@ const Deploy = () => {
   };
 
   const handleCreateConfig = async () => {
-    if (!newConfig.name || !newConfig.domain || !newConfig.github_repo || !newConfig.vm_ip || !newConfig.vm_ssh_key) {
+    if (!newConfig.name || !newConfig.domain || !newConfig.github_repo || !newConfig.vm_ip) {
       toast({
         title: "Ошибка",
         description: "Заполни все обязательные поля",
@@ -98,8 +96,7 @@ const Deploy = () => {
         domain: "",
         github_repo: "",
         vm_ip: "",
-        vm_user: "ubuntu",
-        vm_ssh_key: ""
+        vm_user: "ubuntu"
       });
       loadConfigs();
     } catch (error: any) {
@@ -423,18 +420,7 @@ const Deploy = () => {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="config-ssh">SSH ключ <span className="text-red-400">*</span></Label>
-                <Textarea
-                  id="config-ssh"
-                  placeholder="-----BEGIN RSA PRIVATE KEY-----"
-                  value={newConfig.vm_ssh_key}
-                  onChange={(e) => setNewConfig({...newConfig, vm_ssh_key: e.target.value})}
-                  className="bg-slate-800 border-slate-700 font-mono text-xs"
-                  rows={6}
-                />
-                <p className="text-xs text-slate-500">Приватный SSH ключ для доступа к VM</p>
-              </div>
+
 
               <div className="flex gap-3 pt-4">
                 <Button

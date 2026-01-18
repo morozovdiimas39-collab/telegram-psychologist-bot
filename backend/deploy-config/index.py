@@ -70,7 +70,7 @@ def handler(event: dict, context) -> dict:
         elif method == 'POST':
             body = json.loads(event.get('body', '{}'))
             
-            required = ['name', 'domain', 'github_repo', 'vm_ip', 'vm_ssh_key']
+            required = ['name', 'domain', 'github_repo', 'vm_ip']
             missing = [f for f in required if not body.get(f)]
             
             if missing:
@@ -81,11 +81,13 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
+            vm_webhook_url = body.get('vm_webhook_url', f"http://{body['vm_ip']}:9000/deploy")
+            
             cur.execute(
                 f"""
                 INSERT INTO {schema}.deploy_configs 
-                (name, domain, github_repo, vm_ip, vm_user, vm_ssh_key, vm_webhook_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
+                (name, domain, github_repo, vm_ip, vm_user, vm_webhook_url)
+                VALUES (%s, %s, %s, %s, %s, %s)
                 RETURNING id, name, domain, github_repo, vm_ip, vm_user, vm_webhook_url, created_at, updated_at
                 """,
                 (
@@ -94,8 +96,7 @@ def handler(event: dict, context) -> dict:
                     body['github_repo'],
                     body['vm_ip'],
                     body.get('vm_user', 'ubuntu'),
-                    body['vm_ssh_key'],
-                    body.get('vm_webhook_url', f"http://{body['vm_ip']}:9000/deploy")
+                    vm_webhook_url
                 )
             )
             
@@ -126,7 +127,7 @@ def handler(event: dict, context) -> dict:
             updates = []
             params = []
             
-            for field in ['domain', 'github_repo', 'vm_ip', 'vm_user', 'vm_ssh_key', 'vm_webhook_url']:
+            for field in ['domain', 'github_repo', 'vm_ip', 'vm_user', 'vm_webhook_url']:
                 if field in body:
                     updates.append(f"{field} = %s")
                     params.append(body[field])
