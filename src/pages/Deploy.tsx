@@ -191,17 +191,52 @@ const Deploy = () => {
           </Card>
         )}
 
+        <Card className="bg-yellow-500/10 backdrop-blur border-yellow-500/30">
+          <CardHeader>
+            <CardTitle className="text-white text-sm flex items-center gap-2">
+              <Icon name="Key" className="h-4 w-4 text-yellow-400" />
+              Требуется: GITHUB_TOKEN
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="text-sm text-slate-300 space-y-2">
+              <p>Для автоматического обновления <code className="bg-white/10 px-1 rounded">func2url.json</code> нужен GitHub токен:</p>
+              <ol className="list-decimal list-inside space-y-1 text-xs ml-2">
+                <li>Открой <a href="https://github.com/settings/tokens/new" target="_blank" className="text-blue-400 hover:underline">github.com/settings/tokens/new</a></li>
+                <li>Название: <code className="bg-white/10 px-1 rounded">poehali-deploy</code></li>
+                <li>Права: отметь весь раздел <strong>repo</strong></li>
+                <li>Создай токен и скопируй его</li>
+                <li>Добавь секрет <code className="bg-white/10 px-1 rounded">GITHUB_TOKEN</code> в проект через меню "Секреты"</li>
+              </ol>
+              <p className="text-xs text-yellow-300">
+                ⚠️ Без этого токена func2url.json не обновится автоматически
+              </p>
+            </div>
+            
+            <div className="flex gap-2">
+              <Button
+                onClick={() => window.open('https://github.com/settings/tokens/new', '_blank')}
+                variant="outline"
+                size="sm"
+                className="bg-white/10 border-white/20 text-white hover:bg-white/20"
+              >
+                <Icon name="ExternalLink" className="mr-2 h-3 w-3" />
+                Создать токен GitHub
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+        
         <Card className="bg-white/5 backdrop-blur border-white/10">
           <CardHeader>
             <CardTitle className="text-white text-sm flex items-center gap-2">
-              <Icon name="HelpCircle" className="h-4 w-4" />
-              Требования для миграции
+              <Icon name="CheckCircle2" className="h-4 w-4" />
+              Также требуется
             </CardTitle>
           </CardHeader>
           <CardContent className="text-xs text-slate-400 space-y-2">
-            <p>✅ <strong>GITHUB_TOKEN</strong> - добавь токен с правами <code className="bg-white/10 px-1 rounded">repo</code> в секреты проекта</p>
             <p>✅ <strong>YANDEX_CLOUD_TOKEN</strong> - OAuth токен для Yandex Cloud (уже добавлен)</p>
-            <p>✅ Папка <code className="bg-white/10 px-1 rounded">/backend</code> с функциями в репозитории</p>
+            <p>✅ Папка <code className="bg-white/10 px-1 rounded">/backend</code> с функциями в GitHub репозитории</p>
           </CardContent>
         </Card>
       </div>
