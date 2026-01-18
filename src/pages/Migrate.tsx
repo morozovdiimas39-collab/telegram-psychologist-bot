@@ -3,6 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import Icon from '@/components/ui/icon';
 import { toast } from 'sonner';
+import { API_ENDPOINTS } from '@/lib/api';
 
 export default function Migrate() {
   const [file, setFile] = useState<File | null>(null);
@@ -38,7 +39,7 @@ export default function Migrate() {
 
         setLogs(prev => [...prev, 'Отправка на сервер...']);
 
-        const response = await fetch('https://functions.poehali.dev/e861fe2a-7e02-4b5e-a948-b5cdf4f6e620', {
+        const response = await fetch(API_ENDPOINTS.migrate, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

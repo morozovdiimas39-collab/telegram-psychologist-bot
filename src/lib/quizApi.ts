@@ -1,4 +1,6 @@
-const API_URL = 'https://functions.poehali.dev/822872d6-b63d-4b6e-990b-cbd080d3143f';
+import { API_ENDPOINTS } from './api';
+
+const API_URL = API_ENDPOINTS.quizApi;
 
 export interface Answer {
   id: number;
@@ -66,7 +68,7 @@ export const quizApi = {
     created_goals: Array<{ name: string; id?: number; status: string }>;
     created_segments: Array<{ name: string; id?: number; status: string }>;
   }> {
-    const response = await fetch('https://functions.poehali.dev/68e9b314-2779-4c02-a2e7-30c01923111f', {
+    const response = await fetch(API_ENDPOINTS.metrikaGoals, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

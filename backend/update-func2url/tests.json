@@ -1,0 +1,19 @@
+{
+  "tests": [
+    {
+      "name": "Test func2url update",
+      "method": "POST",
+      "body": {
+        "function_urls": {
+          "test-function": "https://functions.yandexcloud.net/test-id"
+        },
+        "github_repo": "user/repo"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

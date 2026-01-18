@@ -63,6 +63,7 @@ def handler(event: dict, context) -> dict:
         logs.append(f"✅ Найдено функций: {len(function_dirs)}")
         
         deployed_functions = []
+        function_urls = {}
         
         # Деплоим каждую функцию
         for func_name in function_dirs:
@@ -197,7 +198,11 @@ def handler(event: dict, context) -> dict:
                 timeout=10
             )
             
-            logs.append(f"✅ {func_name} задеплоена")
+            # Получаем HTTP URL функции
+            function_url = f"https://functions.yandexcloud.net/{function_id}"
+            function_urls[func_name] = function_url
+            
+            logs.append(f"✅ {func_name} задеплоена: {function_url}")
             deployed_functions.append(func_name)
         
         logs.append("")
@@ -209,6 +214,7 @@ def handler(event: dict, context) -> dict:
             'body': json.dumps({
                 'success': True,
                 'deployed': deployed_functions,
+                'function_urls': function_urls,
                 'logs': logs
             }),
             'isBase64Encoded': False

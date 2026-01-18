@@ -6,6 +6,7 @@ import { Label } from "@/components/ui/label";
 
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
+import { API_ENDPOINTS } from "@/lib/api";
 
 const Deploy = () => {
   const [githubUrl, setGithubUrl] = useState("");
@@ -27,7 +28,7 @@ const Deploy = () => {
     setDeployLog(["🚀 Создаю VM в Yandex Cloud..."]);
 
     try {
-      const response = await fetch("https://functions.poehali.dev/473a90f3-4df5-49e2-8d37-930288a2b3eb", {
+      const response = await fetch(API_ENDPOINTS.ycCreate, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
@@ -84,7 +85,7 @@ const Deploy = () => {
     setDeployLog(["🔄 Обновляю скрипт деплоя на VM..."]);
 
     try {
-      const response = await fetch("https://functions.poehali.dev/8bc9a2dc-aa30-4e12-90da-aafc88c6dc5e", {
+      const response = await fetch(API_ENDPOINTS.ycSetup, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
@@ -117,7 +118,7 @@ const Deploy = () => {
     setDeployLog(["🔄 Перезагружаю VM..."]);
 
     try {
-      const response = await fetch("https://functions.poehali.dev/d562c906-3f9a-4041-a2f7-05605e206246", {
+      const response = await fetch(API_ENDPOINTS.setupWebhook, {
         method: "POST",
         headers: { "Content-Type": "application/json" }
       });
@@ -159,7 +160,7 @@ const Deploy = () => {
     setDeployLog(["🚀 Деплою облачные функции в Yandex Cloud..."]);
 
     try {
-      const response = await fetch("https://functions.poehali.dev/bdf0df74-2961-4e8c-88bb-756cfc7c4bc1", {
+      const response = await fetch(API_ENDPOINTS.deployFunctions, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -205,7 +206,7 @@ const Deploy = () => {
     setDeployLog(["🚀 Начинаю деплой..."]);
 
     try {
-      const response = await fetch("https://functions.poehali.dev/aa6cb973-aa73-426a-8148-f1be1cbf3a3b", {
+      const response = await fetch(API_ENDPOINTS.deploy, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
