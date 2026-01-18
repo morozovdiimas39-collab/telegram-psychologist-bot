@@ -7,7 +7,10 @@ from psycopg2.extras import RealDictCursor
 
 
 def handler(event: dict, context) -> dict:
-    """Создание VM в Yandex Cloud с установкой nginx, bun, certbot"""
+    """Создание VM в Yandex Cloud с установкой nginx, bun, certbot
+    
+    Если указан existing_vm=true, то использует существующую VM из секретов
+    """
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -28,12 +31,65 @@ def handler(event: dict, context) -> dict:
             body_str = '{}'
         body = json.loads(body_str) if isinstance(body_str, str) else body_str
         vm_name = body.get('name', 'deploy-vm-1')
+        use_existing = body.get('existing_vm', False)
         
         # Подключаемся к БД
         dsn = os.environ['DATABASE_URL']
         schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
         conn = psycopg2.connect(dsn)
         cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Если используем существующую VM из секретов
+        if use_existing:
+            existing_ip = os.environ.get('VM_IP_ADDRESS')
+            existing_ssh_key = os.environ.get('VM_SSH_PUBLIC_KEY', 'ssh-rsa AAAAB3NzaC1...')
+            
+            if not existing_ip:
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': 'VM_IP_ADDRESS не найден в секретах'}),
+                    'isBase64Encoded': False
+                }
+            
+            # Проверяем, нет ли уже такой VM
+            cur.execute(
+                f"SELECT id FROM {schema}.vm_instances WHERE ip_address = %s",
+                (existing_ip,)
+            )
+            if cur.fetchone():
+                return {
+                    'statusCode': 400,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': f'VM с IP {existing_ip} уже добавлена'}),
+                    'isBase64Encoded': False
+                }
+            
+            # Добавляем существующую VM в БД
+            cur.execute(
+                f"""
+                INSERT INTO {schema}.vm_instances (name, ip_address, ssh_key, status)
+                VALUES (%s, %s, %s, 'ready')
+                RETURNING id
+                """,
+                (vm_name, existing_ip, existing_ssh_key)
+            )
+            vm_record = cur.fetchone()
+            conn.commit()
+            
+            return {
+                'statusCode': 201,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'success': True,
+                    'vm_id': vm_record['id'],
+                    'name': vm_name,
+                    'ip_address': existing_ip,
+                    'status': 'ready',
+                    'message': 'Существующая VM добавлена в систему'
+                }),
+                'isBase64Encoded': False
+            }
         
         # Проверяем, нет ли уже VM с таким именем
         cur.execute(

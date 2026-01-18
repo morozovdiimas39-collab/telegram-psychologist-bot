@@ -1,16 +1,17 @@
 {
   "tests": [
     {
-      "name": "POST without name returns default VM name",
+      "name": "POST with existing_vm flag adds existing VM",
       "method": "POST",
       "path": "/",
-      "body": {},
+      "body": {
+        "name": "production-vm",
+        "existing_vm": true
+      },
       "expectedStatus": 201,
       "expectedBody": {
         "success": true,
-        "vm_id": "number",
-        "name": "string",
-        "ip_address": "string"
+        "status": "ready"
       },
       "bodyMatcher": "partial"
     }

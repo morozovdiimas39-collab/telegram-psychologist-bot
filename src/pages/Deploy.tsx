@@ -93,7 +93,7 @@ export default function Deploy() {
     }
   };
 
-  const handleCreateVM = async () => {
+  const handleCreateVM = async (useExisting: boolean = false) => {
     if (!newVM.name) {
       toast({
         title: "Ошибка",
@@ -108,7 +108,10 @@ export default function Deploy() {
       const resp = await fetch(API_ENDPOINTS.vmCreate, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(newVM)
+        body: JSON.stringify({
+          name: newVM.name,
+          existing_vm: useExisting
+        })
       });
 
       const data = await resp.json();
@@ -118,7 +121,7 @@ export default function Deploy() {
       }
 
       toast({
-        title: data.status === 'ready' ? "VM создана!" : "VM создаётся",
+        title: data.status === 'ready' ? "VM добавлена!" : "VM создаётся",
         description: data.status === 'ready' 
           ? `VM ${newVM.name} готова: ${data.ip_address}` 
           : "Создание займёт 1-2 минуты. Обнови список VM."
@@ -521,27 +524,28 @@ export default function Deploy() {
                     className="bg-slate-800 border-slate-700 text-white"
                   />
                 </div>
-                <Button
-                  onClick={handleCreateVM}
-                  disabled={isCreatingVM}
-                  className="w-full bg-blue-600 hover:bg-blue-700"
-                >
-                  {isCreatingVM ? (
-                    <>Создаю VM...</>
-                  ) : (
-                    <>
-                      <Icon name="Plus" className="mr-2 h-4 w-4" />
-                      Создать VM
-                    </>
-                  )}
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={() => handleCreateVM(true)}
+                    disabled={isCreatingVM}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    {isCreatingVM ? (
+                      <>Добавляю...</>
+                    ) : (
+                      <>
+                        <Icon name="Plus" className="mr-2 h-4 w-4" />
+                        Добавить существующую VM
+                      </>
+                    )}
+                  </Button>
+                </div>
                 <div className="text-xs text-slate-400 border-t border-white/10 pt-4">
-                  <div className="font-semibold mb-2">Что будет установлено:</div>
+                  <div className="font-semibold mb-2">Существующая VM будет добавлена:</div>
                   <ul className="space-y-1">
-                    <li>• Nginx для хостинга</li>
-                    <li>• Certbot для SSL</li>
-                    <li>• Bun для запуска приложений</li>
-                    <li>• SSH ключ для деплоя</li>
+                    <li>• IP адрес из секретов (VM_IP_ADDRESS)</li>
+                    <li>• SSH ключ из секретов (VM_SSH_KEY)</li>
+                    <li>• Статус: ready (готова к деплою)</li>
                   </ul>
                 </div>
               </CardContent>
