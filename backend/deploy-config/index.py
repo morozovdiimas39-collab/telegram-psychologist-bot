@@ -34,7 +34,7 @@ def handler(event: dict, context) -> dict:
             
             if name:
                 cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_ip, vm_user, vm_webhook_url, created_at, updated_at FROM {schema}.deploy_configs WHERE name = %s",
+                    f"SELECT id, name, domain, github_repo, vm_instance_id, created_at, updated_at FROM {schema}.deploy_configs WHERE name = %s",
                     (name,)
                 )
                 config = cur.fetchone()
@@ -55,7 +55,7 @@ def handler(event: dict, context) -> dict:
                 }
             else:
                 cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_ip, vm_user, vm_webhook_url, created_at, updated_at FROM {schema}.deploy_configs ORDER BY created_at DESC"
+                    f"SELECT id, name, domain, github_repo, vm_instance_id, created_at, updated_at FROM {schema}.deploy_configs ORDER BY created_at DESC"
                 )
                 configs = cur.fetchall()
                 
@@ -70,7 +70,7 @@ def handler(event: dict, context) -> dict:
         elif method == 'POST':
             body = json.loads(event.get('body', '{}'))
             
-            required = ['name', 'domain', 'github_repo', 'vm_ip']
+            required = ['name', 'domain', 'github_repo', 'vm_instance_id']
             missing = [f for f in required if not body.get(f)]
             
             if missing:
@@ -81,23 +81,18 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
-            vm_webhook_url = body.get('vm_webhook_url', f"http://{body['vm_ip']}:9000/deploy")
-            
             cur.execute(
                 f"""
                 INSERT INTO {schema}.deploy_configs 
-                (name, domain, github_repo, vm_ip, vm_user, vm_ssh_key, vm_webhook_url)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                RETURNING id, name, domain, github_repo, vm_ip, vm_user, vm_webhook_url, created_at, updated_at
+                (name, domain, github_repo, vm_instance_id, vm_ip, vm_user, vm_ssh_key, vm_webhook_url)
+                VALUES (%s, %s, %s, %s, '', '', '', '')
+                RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
                 """,
                 (
                     body['name'],
                     body['domain'],
                     body['github_repo'],
-                    body['vm_ip'],
-                    body.get('vm_user', 'ubuntu'),
-                    '',
-                    vm_webhook_url
+                    body['vm_instance_id']
                 )
             )
             
@@ -128,7 +123,7 @@ def handler(event: dict, context) -> dict:
             updates = []
             params = []
             
-            for field in ['domain', 'github_repo', 'vm_ip', 'vm_user', 'vm_webhook_url']:
+            for field in ['domain', 'github_repo', 'vm_instance_id']:
                 if field in body:
                     updates.append(f"{field} = %s")
                     params.append(body[field])
@@ -149,7 +144,7 @@ def handler(event: dict, context) -> dict:
                 UPDATE {schema}.deploy_configs 
                 SET {', '.join(updates)}
                 WHERE name = %s
-                RETURNING id, name, domain, github_repo, vm_ip, vm_user, vm_webhook_url, created_at, updated_at
+                RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
                 """,
                 params
             )

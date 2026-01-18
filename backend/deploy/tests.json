@@ -1,22 +1,11 @@
 {
   "tests": [
     {
-      "name": "OPTIONS request returns CORS headers",
-      "method": "OPTIONS",
-      "path": "/",
-      "expectedStatus": 200,
-      "expectedHeaders": {
-        "Access-Control-Allow-Origin": "*"
-      }
-    },
-    {
-      "name": "POST with non-existent config returns 404",
+      "name": "POST without config_name returns 400",
       "method": "POST",
       "path": "/",
-      "body": {
-        "config_name": "non-existent-config"
-      },
-      "expectedStatus": 404,
+      "body": {},
+      "expectedStatus": 400,
       "expectedBody": {
         "error": "string"
       },

@@ -1,0 +1,18 @@
+{
+  "tests": [
+    {
+      "name": "POST without name returns default VM name",
+      "method": "POST",
+      "path": "/",
+      "body": {},
+      "expectedStatus": 201,
+      "expectedBody": {
+        "success": true,
+        "vm_id": "number",
+        "name": "string",
+        "ip_address": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}
