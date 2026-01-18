@@ -1,7 +1,7 @@
 {
   "tests": [
     {
-      "name": "OPTIONS request returns CORS headers",
+      "name": "OPTIONS returns CORS",
       "method": "OPTIONS",
       "path": "/",
       "expectedStatus": 200
