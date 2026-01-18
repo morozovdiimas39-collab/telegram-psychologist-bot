@@ -155,13 +155,13 @@ def handler(event: dict, context) -> dict:
                 logs.append(f"❌ Не удалось получить ID функции {func_name}")
                 continue
             
-            # Создаём версию функции
+            # Создаём версию функции с МАКСИМАЛЬНЫМ timeout
             version_payload = {
                 "functionId": function_id,
                 "runtime": "python311",
                 "entrypoint": "index.handler",
-                "resources": {"memory": "134217728"},
-                "executionTimeout": "30s",
+                "resources": {"memory": "268435456"},
+                "executionTimeout": "600s",
                 "serviceAccountId": None,
                 "environment": {}
             }
