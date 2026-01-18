@@ -57,11 +57,35 @@ def handler(event: dict, context) -> dict:
         )
         folder_id = folders_resp.json()["folders"][0]["id"]
         
-        # Читаем функции из локальной папки backend
-        logs.append("📦 Читаю функции из проекта...")
-        backend_path = Path(__file__).parent.parent
+        # Читаем функции из GitHub репозитория
+        if not github_repo or not github_token:
+            raise ValueError("github_repo и GITHUB_TOKEN обязательны для чтения функций")
         
-        function_dirs = [d.name for d in backend_path.iterdir() if d.is_dir() and (d / 'index.py').exists()]
+        logs.append("📦 Читаю функции из GitHub репозитория...")
+        
+        headers_gh = {
+            'Authorization': f'Bearer {github_token}',
+            'Accept': 'application/vnd.github.v3+json'
+        }
+        
+        # Получаем список папок в /backend
+        backend_url = f'https://api.github.com/repos/{github_repo}/contents/backend'
+        backend_resp = requests.get(backend_url, headers=headers_gh, timeout=10)
+        
+        if backend_resp.status_code != 200:
+            raise ValueError(f"Не удалось прочитать /backend: {backend_resp.text[:200]}")
+        
+        backend_items = backend_resp.json()
+        function_dirs = []
+        
+        for item in backend_items:
+            if item['type'] == 'dir':
+                # Проверяем наличие index.py
+                index_url = f"https://api.github.com/repos/{github_repo}/contents/backend/{item['name']}/index.py"
+                index_check = requests.get(index_url, headers=headers_gh, timeout=5)
+                if index_check.status_code == 200:
+                    function_dirs.append(item['name'])
+        
         logs.append(f"✅ Найдено функций: {len(function_dirs)}")
         
         deployed_functions = []
@@ -71,23 +95,25 @@ def handler(event: dict, context) -> dict:
         for func_name in function_dirs:
             logs.append(f"🚀 Деплою функцию: {func_name}")
             
-            func_path = backend_path / func_name
+            # Читаем index.py из GitHub
+            index_url = f'https://api.github.com/repos/{github_repo}/contents/backend/{func_name}/index.py'
+            index_resp = requests.get(index_url, headers=headers_gh, timeout=10)
             
-            # Читаем index.py
-            index_file = func_path / 'index.py'
-            if not index_file.exists():
-                logs.append(f"⚠️ Пропускаю {func_name} - нет index.py")
+            if index_resp.status_code != 200:
+                logs.append(f"⚠️ Пропускаю {func_name} - не могу прочитать index.py")
                 continue
             
-            with open(index_file, 'r', encoding='utf-8') as f:
-                index_content = f.read()
+            index_data = index_resp.json()
+            index_content = base64.b64decode(index_data['content']).decode('utf-8')
             
             # Читаем requirements.txt если есть
             requirements = ""
-            req_file = func_path / 'requirements.txt'
-            if req_file.exists():
-                with open(req_file, 'r', encoding='utf-8') as f:
-                    requirements = f.read()
+            req_url = f'https://api.github.com/repos/{github_repo}/contents/backend/{func_name}/requirements.txt'
+            req_resp = requests.get(req_url, headers=headers_gh, timeout=10)
+            
+            if req_resp.status_code == 200:
+                req_data = req_resp.json()
+                requirements = base64.b64decode(req_data['content']).decode('utf-8')
             
             # Создаём zip с функцией
             import zipfile
