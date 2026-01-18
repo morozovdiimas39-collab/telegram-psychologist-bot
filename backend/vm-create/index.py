@@ -119,8 +119,8 @@ def handler(event: dict, context) -> dict:
         vm_id = vm_record['id']
         conn.commit()
         
-        # Получаем IAM токен из сервисного аккаунта функции
-        iam_token = get_iam_token(context)
+        # Получаем IAM токен через OAuth
+        iam_token = get_iam_token()
         folder_id = os.environ.get('YANDEX_FOLDER_ID', 'b1g8dn6bs6vq7v3jqfta')
         
         # Генерируем SSH ключ (публичный)
@@ -297,12 +297,22 @@ def generate_ssh_key_pair():
     return os.environ.get('VM_SSH_PUBLIC_KEY', 'ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQC...')
 
 
-def get_iam_token(context) -> str:
-    """Получить IAM токен из сервисного аккаунта функции"""
-    if hasattr(context, 'token') and context.token:
-        return context.token['access_token']
+def get_iam_token() -> str:
+    """Получить IAM токен через OAuth токен Yandex Cloud"""
+    oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
+    if not oauth_token:
+        raise Exception('YANDEX_CLOUD_TOKEN не найден в секретах')
     
-    return os.environ.get('YANDEX_CLOUD_TOKEN', '')
+    response = requests.post(
+        'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+        json={'yandexPassportOauthToken': oauth_token},
+        timeout=10
+    )
+    
+    if response.status_code != 200:
+        raise Exception(f'Ошибка получения IAM токена: {response.text}')
+    
+    return response.json()['iamToken']
 
 
 def get_cloud_init_script(ssh_pub_key: str) -> str:
