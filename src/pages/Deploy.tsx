@@ -38,9 +38,19 @@ export default function Deploy() {
   const [newConfig, setNewConfig] = useState({ name: '', domain: '', repo: '' });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
 
   useEffect(() => {
-    loadData();
+    // При первой загрузке сразу синхронизируем с Yandex Cloud
+    const init = async () => {
+      try {
+        await fetch(API_ENDPOINTS.ycSync, { method: 'POST' });
+      } catch (e) {
+        console.error('Sync error:', e);
+      }
+      loadData();
+    };
+    init();
   }, []);
 
   const loadData = async () => {
@@ -55,7 +65,11 @@ export default function Deploy() {
     try {
       const resp = await fetch(API_ENDPOINTS.vmList);
       const data = await resp.json();
-      setVms(data.filter((vm: VMInstance) => vm.status === 'ready'));
+      
+      // Показываем только VM с yandex_vm_id (реальные серверы из YC)
+      setVms(data.filter((vm: VMInstance) => 
+        vm.yandex_vm_id && vm.status !== 'error'
+      ));
     } catch (error: any) {
       console.error('Ошибка загрузки VM:', error);
     }
@@ -217,6 +231,7 @@ export default function Deploy() {
   };
 
   const handleSyncVMs = async () => {
+    setIsSyncing(true);
     try {
       const resp = await fetch(API_ENDPOINTS.ycSync, {
         method: "POST",
@@ -242,6 +257,8 @@ export default function Deploy() {
         description: error.message,
         variant: "destructive"
       });
+    } finally {
+      setIsSyncing(false);
     }
   };
 
@@ -271,11 +288,12 @@ export default function Deploy() {
               <div className="flex gap-2">
                 <Button
                   onClick={handleSyncVMs}
+                  disabled={isSyncing}
                   variant="outline"
                   className="border-blue-400/30 hover:bg-blue-400/10 text-blue-300"
                 >
-                  <Icon name="RefreshCw" className="h-4 w-4 mr-2" />
-                  Обновить
+                  <Icon name={isSyncing ? "Loader2" : "RefreshCw"} className={`h-4 w-4 mr-2 ${isSyncing ? 'animate-spin' : ''}`} />
+                  {isSyncing ? 'Синхронизация...' : 'Обновить'}
                 </Button>
                 <Button 
                   onClick={handleCreateVM}
@@ -296,23 +314,33 @@ export default function Deploy() {
           </CardHeader>
           <CardContent>
             {vms.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">
-                Нет серверов. Создай VM через Yandex Cloud.
+              <div className="text-center py-12 space-y-3">
+                <Icon name="Server" className="h-12 w-12 text-slate-500 mx-auto" />
+                <p className="text-slate-400">Нет активных серверов</p>
+                <p className="text-slate-500 text-sm">Нажми "Создать VM" чтобы запустить новый сервер в Yandex Cloud</p>
               </div>
             ) : (
               <div className="grid gap-3">
-                {vms.map(vm => (
-                  <div key={vm.id} className="bg-slate-900/50 rounded-lg p-4 flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <Icon name="CheckCircle" className="h-5 w-5 text-green-400" />
-                      <div>
-                        <div className="text-white font-semibold">{vm.name}</div>
-                        <div className="text-slate-400 text-sm font-mono">{vm.ip_address}</div>
+                {vms.map(vm => {
+                  const statusConfig = {
+                    ready: { icon: 'CheckCircle', color: 'text-green-400', label: 'Готов' },
+                    creating: { icon: 'Loader2', color: 'text-yellow-400', label: 'Создаётся...' },
+                    stopped: { icon: 'XCircle', color: 'text-red-400', label: 'Остановлен' }
+                  }[vm.status] || { icon: 'AlertCircle', color: 'text-gray-400', label: vm.status };
+
+                  return (
+                    <div key={vm.id} className="bg-slate-900/50 rounded-lg p-4 flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <Icon name={statusConfig.icon} className={`h-5 w-5 ${statusConfig.color} ${vm.status === 'creating' ? 'animate-spin' : ''}`} />
+                        <div>
+                          <div className="text-white font-semibold">{vm.name}</div>
+                          <div className="text-slate-400 text-sm font-mono">{vm.ip_address || 'IP адрес ещё не назначен'}</div>
+                        </div>
                       </div>
+                      <div className={`${statusConfig.color} text-sm`}>{statusConfig.label}</div>
                     </div>
-                    <div className="text-green-400 text-sm">Готов</div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </CardContent>
