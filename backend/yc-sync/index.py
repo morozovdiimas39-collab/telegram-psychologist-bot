@@ -79,7 +79,25 @@ def handler(event: dict, context) -> dict:
         cur.execute(f"SELECT id, name, yandex_vm_id, status FROM {schema}.vm_instances")
         db_instances = {vm['yandex_vm_id']: vm for vm in cur.fetchall() if vm['yandex_vm_id']}
         
+        # Получаем список yandex_vm_id из YC
+        yc_vm_ids = {vm['id'] for vm in yc_instances}
+        
         updated = 0
+        deleted = 0
+        
+        # Помечаем VM которых нет в YC как удалённые
+        for yc_id, db_vm in db_instances.items():
+            if yc_id not in yc_vm_ids:
+                cur.execute(
+                    f"""
+                    UPDATE {schema}.vm_instances 
+                    SET status = 'deleted', updated_at = CURRENT_TIMESTAMP
+                    WHERE yandex_vm_id = %s
+                    """,
+                    (yc_id,)
+                )
+                deleted += 1
+                logs.append(f"🗑️ VM {db_vm['name']} удалена из YC, помечена как deleted")
         
         # Синхронизируем каждую VM из Yandex Cloud
         for yc_vm in yc_instances:
@@ -134,12 +152,12 @@ def handler(event: dict, context) -> dict:
         cur.close()
         conn.close()
         
-        logs.append(f"🎉 Синхронизация завершена: обновлено {updated} VM")
+        logs.append(f"🎉 Синхронизация завершена: обновлено {updated} VM, удалено {deleted} VM")
         
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({'success': True, 'updated': updated, 'logs': logs}),
+            'body': json.dumps({'success': True, 'updated': updated, 'deleted': deleted, 'logs': logs}),
             'isBase64Encoded': False
         }
         

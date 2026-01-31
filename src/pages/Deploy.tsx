@@ -66,9 +66,11 @@ export default function Deploy() {
       const resp = await fetch(API_ENDPOINTS.vmList);
       const data = await resp.json();
       
-      // Показываем только VM с yandex_vm_id (реальные серверы из YC)
+      // Показываем только актуальные VM (есть в Yandex Cloud)
       setVms(data.filter((vm: VMInstance) => 
-        vm.yandex_vm_id && vm.status !== 'error'
+        vm.yandex_vm_id && 
+        vm.status !== 'error' && 
+        vm.status !== 'deleted'
       ));
     } catch (error: any) {
       console.error('Ошибка загрузки VM:', error);
