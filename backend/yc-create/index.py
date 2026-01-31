@@ -24,7 +24,11 @@ def handler(event: dict, context) -> dict:
     oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
     
     try:
-        logs = ["🔐 Получаю IAM токен..."]
+        # Парсим имя VM из запроса или генерируем уникальное
+        body = json.loads(event.get('body', '{}'))
+        vm_name = body.get('name', f'deploy-vm-{context.request_id[:8]}')
+        
+        logs = [f"🔐 Создаём VM: {vm_name}"]
         
         iam_resp = requests.post(
             "https://iam.api.cloud.yandex.net/iam/v1/tokens",
@@ -111,7 +115,7 @@ def handler(event: dict, context) -> dict:
         schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
         
         for vm in instances:
-            if vm.get("name") == "deploy-server":
+            if vm.get("name") == vm_name:
                 logs.append("✅ VM уже существует в Yandex Cloud")
                 vm_ip = None
                 for iface in vm.get("networkInterfaces", []):
@@ -138,7 +142,7 @@ def handler(event: dict, context) -> dict:
                         VALUES (%s, %s, %s, %s, %s)
                         RETURNING id
                         """,
-                        ("deploy-server", vm_ip, "ubuntu", "ready", vm["id"])
+                        (vm_name, vm_ip, "ubuntu", "ready", vm["id"])
                     )
                     conn.commit()
                     logs.append("✅ VM сохранена в БД")
@@ -240,7 +244,7 @@ runcmd:
         
         vm_payload = {
             "folderId": folder_id,
-            "name": "deploy-server",
+            "name": vm_name,
             "zoneId": "ru-central1-a",
             "platformId": "standard-v3",
             "resourcesSpec": {"memory": "4294967296", "cores": "2"},
@@ -285,6 +289,9 @@ runcmd:
         conn = psycopg2.connect(dsn)
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
+        # Сохраняем в БД с реальным ID VM из operation metadata
+        vm_id_from_operation = operation_data.get("metadata", {}).get("instanceId", operation_id)
+        
         cur.execute(
             f"""
             INSERT INTO {schema}.vm_instances 
@@ -292,7 +299,7 @@ runcmd:
             VALUES (%s, %s, %s, %s, %s)
             RETURNING id
             """,
-            ("deploy-server", None, "ubuntu", "creating", operation_id)
+            (vm_name, None, "ubuntu", "creating", vm_id_from_operation)
         )
         vm_db_id = cur.fetchone()["id"]
         conn.commit()

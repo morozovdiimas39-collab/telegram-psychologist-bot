@@ -201,12 +201,19 @@ export default function Deploy() {
   };
 
   const handleCreateVM = async () => {
+    const vmName = prompt("Введи имя для нового сервера (или оставь пустым для автоматического):");
+    
+    // Если пользователь нажал "Отмена"
+    if (vmName === null) return;
+    
     setIsCreatingVM(true);
     try {
       const resp = await fetch(API_ENDPOINTS.ycCreate, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({})
+        body: JSON.stringify({ 
+          name: vmName.trim() || undefined 
+        })
       });
 
       const data = await resp.json();
