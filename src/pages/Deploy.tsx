@@ -39,6 +39,8 @@ export default function Deploy() {
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
+  const [editingConfig, setEditingConfig] = useState<string | null>(null);
+  const [editConfig, setEditConfig] = useState({ name: '', domain: '', repo: '' });
 
   useEffect(() => {
     // При первой загрузке сразу синхронизируем с Yandex Cloud
@@ -198,6 +200,50 @@ export default function Deploy() {
         variant: "destructive"
       });
     }
+  };
+
+  const handleEditConfig = async (configName: string) => {
+    try {
+      const resp = await fetch(API_ENDPOINTS.deployConfig, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          old_name: configName,
+          name: editConfig.name,
+          domain: editConfig.domain,
+          github_repo: editConfig.repo
+        })
+      });
+
+      const data = await resp.json();
+
+      if (!resp.ok) {
+        throw new Error(data.error || "Ошибка обновления");
+      }
+
+      toast({
+        title: "✅ Конфиг обновлён!",
+        description: `${configName} успешно изменён`
+      });
+
+      setEditingConfig(null);
+      loadConfigs();
+    } catch (error: any) {
+      toast({
+        title: "Ошибка",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
+  const startEdit = (config: DeployConfig) => {
+    setEditingConfig(config.name);
+    setEditConfig({
+      name: config.name,
+      domain: config.domain,
+      repo: config.github_repo
+    });
   };
 
   const handleCreateVM = async () => {
@@ -421,41 +467,91 @@ export default function Deploy() {
               <div className="grid gap-3">
                 {configs.map(config => (
                   <div key={config.id} className="bg-slate-900/50 rounded-lg p-4 border border-slate-700">
-                    <div className="flex items-start justify-between mb-3">
-                      <div className="flex-1">
-                        <div className="text-white font-semibold text-lg mb-1">{config.domain}</div>
-                        <div className="text-slate-400 text-sm mb-2">{config.github_repo}</div>
-                        <div className="flex gap-4 text-xs text-slate-500">
-                          <span>Конфиг: {config.name}</span>
-                          {config.vm_ip && <span>IP: {config.vm_ip}</span>}
+                    {editingConfig === config.name ? (
+                      <div className="space-y-3">
+                        <div>
+                          <Label className="text-slate-300">Название</Label>
+                          <Input
+                            value={editConfig.name}
+                            onChange={(e) => setEditConfig({...editConfig, name: e.target.value})}
+                            className="bg-slate-800 border-slate-700 text-white"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">Домен</Label>
+                          <Input
+                            value={editConfig.domain}
+                            onChange={(e) => setEditConfig({...editConfig, domain: e.target.value})}
+                            className="bg-slate-800 border-slate-700 text-white"
+                          />
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">GitHub репозиторий</Label>
+                          <Input
+                            value={editConfig.repo}
+                            onChange={(e) => setEditConfig({...editConfig, repo: e.target.value})}
+                            className="bg-slate-800 border-slate-700 text-white"
+                          />
+                        </div>
+                        <div className="flex gap-2">
+                          <Button onClick={() => handleEditConfig(config.name)} className="bg-green-600 hover:bg-green-700">
+                            <Icon name="Check" className="mr-2 h-4 w-4" />
+                            Сохранить
+                          </Button>
+                          <Button onClick={() => setEditingConfig(null)} variant="outline" className="border-slate-600">
+                            Отмена
+                          </Button>
                         </div>
                       </div>
-                      <Button
-                        onClick={() => handleDeleteConfig(config.name)}
-                        size="sm"
-                        variant="ghost"
-                        className="text-red-400 hover:text-red-300 hover:bg-red-950/50"
-                      >
-                        <Icon name="Trash2" className="h-4 w-4" />
-                      </Button>
-                    </div>
-                    <Button
-                      onClick={() => handleDeploy(config.name)}
-                      disabled={isDeploying === config.name}
-                      className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
-                    >
-                      {isDeploying === config.name ? (
-                        <>
-                          <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
-                          Деплою...
-                        </>
-                      ) : (
-                        <>
-                          <Icon name="Rocket" className="mr-2 h-4 w-4" />
-                          Задеплоить
-                        </>
-                      )}
-                    </Button>
+                    ) : (
+                      <>
+                        <div className="flex items-start justify-between mb-3">
+                          <div className="flex-1">
+                            <div className="text-white font-semibold text-lg mb-1">{config.domain}</div>
+                            <div className="text-slate-400 text-sm mb-2">{config.github_repo}</div>
+                            <div className="flex gap-4 text-xs text-slate-500">
+                              <span>Конфиг: {config.name}</span>
+                              {config.vm_ip && <span>IP: {config.vm_ip}</span>}
+                            </div>
+                          </div>
+                          <div className="flex gap-1">
+                            <Button
+                              onClick={() => startEdit(config)}
+                              size="sm"
+                              variant="ghost"
+                              className="text-blue-400 hover:text-blue-300 hover:bg-blue-950/50"
+                            >
+                              <Icon name="Edit" className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              onClick={() => handleDeleteConfig(config.name)}
+                              size="sm"
+                              variant="ghost"
+                              className="text-red-400 hover:text-red-300 hover:bg-red-950/50"
+                            >
+                              <Icon name="Trash2" className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </div>
+                        <Button
+                          onClick={() => handleDeploy(config.name)}
+                          disabled={isDeploying === config.name}
+                          className="w-full bg-gradient-to-r from-green-600 to-blue-600 hover:from-green-700 hover:to-blue-700"
+                        >
+                          {isDeploying === config.name ? (
+                            <>
+                              <Icon name="Loader2" className="mr-2 h-4 w-4 animate-spin" />
+                              Деплою...
+                            </>
+                          ) : (
+                            <>
+                              <Icon name="Rocket" className="mr-2 h-4 w-4" />
+                              Задеплоить
+                            </>
+                          )}
+                        </Button>
+                      </>
+                    )}
                   </div>
                 ))}
               </div>
