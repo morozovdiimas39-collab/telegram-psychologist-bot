@@ -136,17 +136,22 @@ def handler(event: dict, context) -> dict:
                 updated += 1
                 logs.append(f"✅ Обновлена VM {yc_name} ({yc_status} → {our_status})")
             else:
-                # Добавляем новую VM
+                # Добавляем новую VM (с обработкой дубликатов по имени)
                 cur.execute(
                     f"""
                     INSERT INTO {schema}.vm_instances 
                     (name, ip_address, ssh_user, status, yandex_vm_id)
                     VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (name) DO UPDATE 
+                    SET ip_address = EXCLUDED.ip_address,
+                        status = EXCLUDED.status,
+                        yandex_vm_id = EXCLUDED.yandex_vm_id,
+                        updated_at = CURRENT_TIMESTAMP
                     """,
                     (yc_name, vm_ip, "ubuntu", our_status, yc_id)
                 )
                 updated += 1
-                logs.append(f"➕ Добавлена новая VM {yc_name}")
+                logs.append(f"➕ Добавлена VM {yc_name}")
         
         conn.commit()
         cur.close()

@@ -292,11 +292,16 @@ runcmd:
         # Сохраняем в БД с реальным ID VM из operation metadata
         vm_id_from_operation = operation_data.get("metadata", {}).get("instanceId", operation_id)
         
+        # Используем ON CONFLICT для обработки дубликатов имён
         cur.execute(
             f"""
             INSERT INTO {schema}.vm_instances 
             (name, ip_address, ssh_user, status, yandex_vm_id)
             VALUES (%s, %s, %s, %s, %s)
+            ON CONFLICT (name) DO UPDATE 
+            SET status = 'creating', 
+                yandex_vm_id = EXCLUDED.yandex_vm_id,
+                updated_at = CURRENT_TIMESTAMP
             RETURNING id
             """,
             (vm_name, None, "ubuntu", "creating", vm_id_from_operation)

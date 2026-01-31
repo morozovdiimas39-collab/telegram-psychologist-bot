@@ -58,11 +58,12 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             else:
-                # Получить все VM
+                # Получить все VM (кроме удалённых)
                 cur.execute(
                     f"""
                     SELECT id, name, ip_address, ssh_user, status, yandex_vm_id, created_at, updated_at
                     FROM {schema}.vm_instances 
+                    WHERE status != 'deleted'
                     ORDER BY created_at DESC
                     """
                 )
