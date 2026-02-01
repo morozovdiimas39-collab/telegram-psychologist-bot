@@ -193,8 +193,9 @@ def handler(event: dict, context) -> dict:
             run_cmd("sudo systemctl reload nginx")
             logs.append("✅ Nginx перезагружен")
             
-            # 4. Деплоим backend функции
-            if deploy_type == 'all':
+            # 4. Деплой backend функций ОТКЛЮЧЕН (слишком долго для одной функции)
+            # Используй отдельную функцию deploy-functions для этого
+            if False and deploy_type == 'all':
                 logs.append("")
                 logs.append("☁️ Деплою backend функции в Yandex Cloud...")
                 
@@ -365,9 +366,11 @@ def handler(event: dict, context) -> dict:
                     logs.append(f"⚠️ Деплой функций: {str(e)[:100]}")
             
             logs.append("")
-            logs.append(f"🎉 Деплой завершён!")
+            logs.append(f"🎉 Фронтенд задеплоен!")
             logs.append(f"🌐 Сайт доступен: http://{domain}")
             logs.append(f"   (или http://{vm_ip} если DNS не настроен)")
+            logs.append("")
+            logs.append("💡 Для деплоя backend функций используй отдельную кнопку")
             
             ssh.close()
             
