@@ -1,0 +1,1 @@
+ALTER TABLE vm_instances RENAME COLUMN ssh_key TO ssh_private_key;

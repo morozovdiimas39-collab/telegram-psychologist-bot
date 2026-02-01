@@ -3,6 +3,11 @@ import os
 import requests
 import psycopg2
 from psycopg2.extras import RealDictCursor
+import base64
+import secrets
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.backends import default_backend
 
 
 def handler(event: dict, context) -> dict:
@@ -166,6 +171,28 @@ def handler(event: dict, context) -> dict:
         
         logs.append("⚠️ VM не найдена, создаю...")
         
+        # Генерируем SSH ключи
+        logs.append("🔐 Генерирую SSH ключи...")
+        private_key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+            backend=default_backend()
+        )
+        
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode('utf-8')
+        
+        public_key = private_key.public_key()
+        public_openssh = public_key.public_bytes(
+            encoding=serialization.Encoding.OpenSSH,
+            format=serialization.PublicFormat.OpenSSH
+        ).decode('utf-8')
+        
+        logs.append(f"✅ SSH ключи сгенерированы")
+        
         zone = "ru-central1-a"
         
         logs.append(f"📡 Получаю subnet в зоне {zone}...")
@@ -192,7 +219,8 @@ def handler(event: dict, context) -> dict:
         
         logs.append(f"✅ Subnet: {subnet_id}")
         
-        cloud_init = """#cloud-config
+        # Подставляем публичный ключ в cloud-init
+        cloud_init = f"""#cloud-config
 package_update: true
 packages:
   - docker.io
@@ -204,6 +232,13 @@ packages:
   - git
   - nodejs
   - npm
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - {public_openssh}
 
 write_files:
   - path: /etc/systemd/system/deploy-webhook.service
@@ -234,10 +269,10 @@ runcmd:
   - echo "listen_addresses = '*'" >> /etc/postgresql/*/main/postgresql.conf
   - systemctl restart postgresql
   - mkdir -p /var/www
-  - chown -R www-data:www-data /var/www
+  - chown -R ubuntu:ubuntu /var/www
   - pip3 install flask requests
   - systemctl daemon-reload
-  - echo 'VM готова, скрипт будет загружен через vm-update функцию' > /var/log/deploy_init.log
+  - echo 'VM готова' > /var/log/deploy_init.log
 """
         
         logs.append("🚀 Создаю VM...")
@@ -283,7 +318,7 @@ runcmd:
         operation_id = operation_data["id"]
         
         logs.append(f"✅ Операция запущена: {operation_id}")
-        logs.append("💾 Сохраняю VM в БД...")
+        logs.append("💾 Сохраняю VM и SSH ключи в БД...")
         
         # Сохраняем VM в БД сразу со статусом creating
         conn = psycopg2.connect(dsn)
@@ -296,22 +331,23 @@ runcmd:
         cur.execute(
             f"""
             INSERT INTO {schema}.vm_instances 
-            (name, ip_address, ssh_user, status, yandex_vm_id)
-            VALUES (%s, %s, %s, %s, %s)
+            (name, ip_address, ssh_user, status, yandex_vm_id, ssh_private_key)
+            VALUES (%s, %s, %s, %s, %s, %s)
             ON CONFLICT (name) DO UPDATE 
             SET status = 'creating', 
                 yandex_vm_id = EXCLUDED.yandex_vm_id,
+                ssh_private_key = EXCLUDED.ssh_private_key,
                 updated_at = CURRENT_TIMESTAMP
             RETURNING id
             """,
-            (vm_name, None, "ubuntu", "creating", vm_id_from_operation)
+            (vm_name, None, "ubuntu", "creating", vm_id_from_operation, private_pem)
         )
         vm_db_id = cur.fetchone()["id"]
         conn.commit()
         cur.close()
         conn.close()
         
-        logs.append(f"✅ VM #{vm_db_id} сохранена в БД")
+        logs.append(f"✅ VM #{vm_db_id} сохранена с SSH ключом")
         logs.append("⏳ VM создаётся 2-3 минуты, обнови список")
         
         return {

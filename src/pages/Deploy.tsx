@@ -40,7 +40,8 @@ export default function Deploy() {
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
-  const [editConfig, setEditConfig] = useState({ name: '', domain: '', repo: '' });
+  const [editConfig, setEditConfig] = useState({ name: '', domain: '', repo: '', vmId: 0 });
+  const [selectedVmId, setSelectedVmId] = useState<number | null>(null);
 
   useEffect(() => {
     // При первой загрузке сразу синхронизируем с Yandex Cloud
@@ -138,6 +139,8 @@ export default function Deploy() {
       return;
     }
 
+    const vmId = selectedVmId || vms[0].id;
+
     try {
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "POST",
@@ -146,7 +149,7 @@ export default function Deploy() {
           name: newConfig.name,
           domain: newConfig.domain,
           github_repo: newConfig.repo,
-          vm_instance_id: vms[0].id
+          vm_instance_id: vmId
         })
       });
 
@@ -162,6 +165,7 @@ export default function Deploy() {
       });
 
       setNewConfig({ name: '', domain: '', repo: '' });
+      setSelectedVmId(null);
       setShowNewConfigForm(false);
       loadConfigs();
     } catch (error: any) {
@@ -211,7 +215,8 @@ export default function Deploy() {
           old_name: configName,
           name: editConfig.name,
           domain: editConfig.domain,
-          github_repo: editConfig.repo
+          github_repo: editConfig.repo,
+          vm_instance_id: editConfig.vmId
         })
       });
 
@@ -242,7 +247,8 @@ export default function Deploy() {
     setEditConfig({
       name: config.name,
       domain: config.domain,
-      repo: config.github_repo
+      repo: config.github_repo,
+      vmId: config.vm_instance_id || 0
     });
   };
 
@@ -446,6 +452,21 @@ export default function Deploy() {
                       className="bg-slate-800 border-slate-700 text-white"
                     />
                   </div>
+                  <div>
+                    <Label className="text-slate-300">Сервер</Label>
+                    <select
+                      value={selectedVmId || ''}
+                      onChange={(e) => setSelectedVmId(Number(e.target.value) || null)}
+                      className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
+                    >
+                      <option value="">Автоматически ({vms[0]?.name || 'нет серверов'})</option>
+                      {vms.map(vm => (
+                        <option key={vm.id} value={vm.id}>
+                          {vm.name} ({vm.ip_address || 'создаётся...'})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button onClick={handleCreateConfig} className="bg-green-600 hover:bg-green-700">
@@ -492,6 +513,21 @@ export default function Deploy() {
                             onChange={(e) => setEditConfig({...editConfig, repo: e.target.value})}
                             className="bg-slate-800 border-slate-700 text-white"
                           />
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">Сервер</Label>
+                          <select
+                            value={editConfig.vmId || ''}
+                            onChange={(e) => setEditConfig({...editConfig, vmId: Number(e.target.value) || 0})}
+                            className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
+                          >
+                            <option value="">Не выбран</option>
+                            {vms.map(vm => (
+                              <option key={vm.id} value={vm.id}>
+                                {vm.name} ({vm.ip_address || 'создаётся...'})
+                              </option>
+                            ))}
+                          </select>
                         </div>
                         <div className="flex gap-2">
                           <Button onClick={() => handleEditConfig(config.name)} className="bg-green-600 hover:bg-green-700">

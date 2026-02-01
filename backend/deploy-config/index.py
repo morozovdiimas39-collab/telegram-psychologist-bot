@@ -109,19 +109,24 @@ def handler(event: dict, context) -> dict:
         # PUT - обновить конфиг
         elif method == 'PUT':
             body = json.loads(event.get('body', '{}'))
-            name = body.get('name')
+            old_name = body.get('old_name')
+            new_name = body.get('name', old_name)
             
-            if not name:
+            if not old_name:
                 return {
                     'statusCode': 400,
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                    'body': json.dumps({'error': 'Укажи name конфига'}),
+                    'body': json.dumps({'error': 'Укажи old_name конфига'}),
                     'isBase64Encoded': False
                 }
             
             # Строим SET часть запроса
             updates = []
             params = []
+            
+            if new_name and new_name != old_name:
+                updates.append("name = %s")
+                params.append(new_name)
             
             for field in ['domain', 'github_repo', 'vm_instance_id']:
                 if field in body:
@@ -137,7 +142,7 @@ def handler(event: dict, context) -> dict:
                 }
             
             updates.append("updated_at = CURRENT_TIMESTAMP")
-            params.append(name)
+            params.append(old_name)
             
             cur.execute(
                 f"""

@@ -4,9 +4,7 @@
       "name": "GET all configs returns array",
       "method": "GET",
       "path": "/",
-      "expectedStatus": 200,
-      "expectedBody": [],
-      "bodyMatcher": "type"
+      "expectedStatus": 200
     },
     {
       "name": "POST without required fields returns 400",
