@@ -135,6 +135,34 @@ def handler(event: dict, context) -> dict:
             return output, error, exit_code
         
         try:
+            # 0. Проверяем и устанавливаем git, nodejs, npm если нужно
+            logs.append("🔧 Проверяю установку необходимых пакетов...")
+            
+            # Проверяем git
+            _, _, git_check = run_cmd("which git", ignore_errors=True)
+            if git_check != 0:
+                logs.append("  📦 Устанавливаю git...")
+                run_cmd("sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y git")
+                logs.append("  ✅ git установлен")
+            
+            # Проверяем nodejs
+            _, _, node_check = run_cmd("which node", ignore_errors=True)
+            if node_check != 0:
+                logs.append("  📦 Устанавливаю nodejs и npm...")
+                run_cmd("sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nodejs npm")
+                logs.append("  ✅ nodejs установлен")
+            
+            # Проверяем nginx
+            _, _, nginx_check = run_cmd("which nginx", ignore_errors=True)
+            if nginx_check != 0:
+                logs.append("  📦 Устанавливаю nginx...")
+                run_cmd("sudo apt-get update && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y nginx")
+                run_cmd("sudo systemctl enable nginx && sudo systemctl start nginx")
+                logs.append("  ✅ nginx установлен")
+            
+            logs.append("✅ Все пакеты готовы")
+            logs.append("")
+            
             # 1. Клонируем репозиторий
             logs.append("📥 Клонирую репозиторий...")
             project_dir = f"/var/www/{domain}"
