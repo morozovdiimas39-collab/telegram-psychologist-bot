@@ -93,10 +93,13 @@ export default function Deploy() {
   const handleDeploy = async (configName: string) => {
     setIsDeploying(configName);
     try {
-      const resp = await fetch(API_ENDPOINTS.deploy, {
+      // ЗАМЕНИ ЭТОТ URL НА СВОЙ ИЗ ЯНДЕКС ОБЛАКА!
+      const DEPLOY_URL = 'https://functions.yandexcloud.net/ТВОЙ_ID_ФУНКЦИИ';
+      
+      const resp = await fetch(DEPLOY_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config_name: configName, type: 'all' })
+        body: JSON.stringify({ config_name: configName })
       });
 
       const data = await resp.json();
