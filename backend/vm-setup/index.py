@@ -23,8 +23,24 @@ def handler(event, context):
         }
 
     try:
+        import time
+        import re
+        
         body = json.loads(event.get('body', '{}'))
-        vm_name = body.get('name', f'vm-{int(time.time())}')
+        raw_name = body.get('name', '').strip()
+        
+        # Yandex Cloud требует: начало с буквы, только a-z0-9-, длина 3-63
+        if raw_name:
+            vm_name = re.sub(r'[^a-z0-9-]', '-', raw_name.lower())
+            vm_name = re.sub(r'-+', '-', vm_name).strip('-')
+            if not vm_name or not vm_name[0].isalpha():
+                vm_name = f'vm-{vm_name}'
+        else:
+            vm_name = f'vm-{int(time.time())}'
+        
+        # Финальная валидация
+        if not re.match(r'^[a-z]([a-z0-9-]{1,61}[a-z0-9])?$', vm_name):
+            vm_name = f'vm-{int(time.time())}'
         
         dsn = os.environ['DATABASE_URL']
         schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
