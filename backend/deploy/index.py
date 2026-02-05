@@ -94,10 +94,13 @@ def handler(event: dict, context) -> dict:
         
         if not ssh_key:
             logs.append("❌ SSH ключ не найден для VM")
+            logs.append("💡 Эта VM была создана без автоматического SSH")
+            logs.append("   Создай новую VM через кнопку 'Создать VM'")
+            logs.append("   И выбери её в настройках конфига")
             return {
                 'statusCode': 400,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'SSH ключ не настроен', 'logs': logs}),
+                'body': json.dumps({'error': 'SSH ключ не настроен (VM устарела)', 'logs': logs}),
                 'isBase64Encoded': False
             }
         
@@ -116,10 +119,17 @@ def handler(event: dict, context) -> dict:
             logs.append("✅ SSH подключение установлено")
         except Exception as e:
             logs.append(f"❌ Не могу подключиться по SSH: {str(e)}")
+            logs.append("")
+            logs.append("💡 Возможные причины:")
+            logs.append("   1. VM была создана до внедрения автоматического SSH")
+            logs.append("   2. Публичный ключ не был добавлен на сервер")
+            logs.append("   3. Сервер ещё не готов (подожди 2-3 минуты после создания)")
+            logs.append("")
+            logs.append("🔧 Решение: Создай новую VM и привяжи её к этому конфигу")
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'SSH connection failed', 'logs': logs}),
+                'body': json.dumps({'error': 'SSH connection failed', 'logs': logs, 'details': str(e)}),
                 'isBase64Encoded': False
             }
         
