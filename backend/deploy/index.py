@@ -118,20 +118,175 @@ def handler(event: dict, context) -> dict:
             ssh.connect(vm_ip, username=ssh_user, pkey=pkey, timeout=30)
             logs.append("✅ SSH подключение установлено")
         except Exception as e:
-            logs.append(f"❌ Не могу подключиться по SSH: {str(e)}")
+            logs.append(f"❌ SSH не работает: {str(e)[:100]}")
             logs.append("")
-            logs.append("💡 Возможные причины:")
-            logs.append("   1. VM была создана до внедрения автоматического SSH")
-            logs.append("   2. Публичный ключ не был добавлен на сервер")
-            logs.append("   3. Сервер ещё не готов (подожди 2-3 минуты после создания)")
-            logs.append("")
-            logs.append("🔧 Решение: Создай новую VM и привяжи её к этому конфигу")
-            return {
-                'statusCode': 500,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': 'SSH connection failed', 'logs': logs, 'details': str(e)}),
-                'isBase64Encoded': False
-            }
+            logs.append("🔧 Создаю новую VM с правильными SSH ключами...")
+            
+            # Автоматически создаём новую VM
+            try:
+                from cryptography.hazmat.primitives import serialization
+                from cryptography.hazmat.primitives.asymmetric import rsa
+                from cryptography.hazmat.backends import default_backend
+                
+                oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
+                
+                # Получаем IAM токен
+                iam_resp = requests.post(
+                    "https://iam.api.cloud.yandex.net/iam/v1/tokens",
+                    json={"yandexPassportOauthToken": oauth_token},
+                    timeout=10
+                )
+                iam_token = iam_resp.json()["iamToken"]
+                headers_yc = {"Authorization": f"Bearer {iam_token}"}
+                
+                # Получаем folder_id
+                clouds_resp = requests.get(
+                    "https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds",
+                    headers=headers_yc,
+                    timeout=10
+                )
+                cloud_id = clouds_resp.json()["clouds"][0]["id"]
+                
+                folders_resp = requests.get(
+                    f"https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}",
+                    headers=headers_yc,
+                    timeout=10
+                )
+                folder_id = folders_resp.json()["folders"][0]["id"]
+                
+                # Генерируем SSH ключи
+                private_key = rsa.generate_private_key(
+                    public_exponent=65537,
+                    key_size=2048,
+                    backend=default_backend()
+                )
+                
+                private_pem = private_key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption()
+                ).decode('utf-8')
+                
+                public_key = private_key.public_key()
+                public_openssh = public_key.public_bytes(
+                    encoding=serialization.Encoding.OpenSSH,
+                    format=serialization.PublicFormat.OpenSSH
+                ).decode('utf-8')
+                
+                # Получаем subnet
+                subnets_resp = requests.get(
+                    f"https://vpc.api.cloud.yandex.net/vpc/v1/subnets?folderId={folder_id}",
+                    headers=headers_yc,
+                    timeout=10
+                )
+                subnets = subnets_resp.json().get("subnets", [])
+                subnet_id = None
+                for subnet in subnets:
+                    if subnet.get("zoneId") == "ru-central1-a":
+                        subnet_id = subnet["id"]
+                        break
+                
+                if not subnet_id:
+                    raise Exception("Subnet not found")
+                
+                # Cloud-init с публичным ключом
+                cloud_init = f"""#cloud-config
+package_update: true
+packages:
+  - nginx
+  - git
+  - nodejs
+  - npm
+
+users:
+  - name: ubuntu
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    ssh_authorized_keys:
+      - {public_openssh}
+
+runcmd:
+  - systemctl enable nginx && systemctl start nginx
+  - mkdir -p /var/www
+  - chown -R ubuntu:ubuntu /var/www
+"""
+                
+                new_vm_name = f"{domain.replace('.', '-')}-vm"
+                
+                # Создаём VM
+                vm_payload = {
+                    "folderId": folder_id,
+                    "name": new_vm_name,
+                    "zoneId": "ru-central1-a",
+                    "platformId": "standard-v3",
+                    "resourcesSpec": {"memory": "4294967296", "cores": "2"},
+                    "bootDiskSpec": {
+                        "mode": "READ_WRITE",
+                        "autoDelete": True,
+                        "diskSpec": {
+                            "size": "32212254720",
+                            "typeId": "network-ssd",
+                            "imageId": "fd8kdq6d0p8sij7h5qe3"
+                        }
+                    },
+                    "networkInterfaceSpecs": [{
+                        "subnetId": subnet_id,
+                        "primaryV4AddressSpec": {"oneToOneNatSpec": {"ipVersion": "IPV4"}}
+                    }],
+                    "metadata": {"user-data": cloud_init}
+                }
+                
+                create_resp = requests.post(
+                    "https://compute.api.cloud.yandex.net/compute/v1/instances",
+                    headers={**headers_yc, "Content-Type": "application/json"},
+                    json=vm_payload,
+                    timeout=30
+                )
+                
+                if create_resp.status_code == 200:
+                    operation_data = create_resp.json()
+                    vm_id_from_operation = operation_data.get("metadata", {}).get("instanceId")
+                    
+                    # Сохраняем в БД
+                    cur.execute(
+                        f"""
+                        INSERT INTO {schema}.vm_instances 
+                        (name, ip_address, ssh_user, status, yandex_vm_id, ssh_private_key)
+                        VALUES (%s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (new_vm_name, None, "ubuntu", "creating", vm_id_from_operation, private_pem)
+                    )
+                    new_vm_db_id = cur.fetchone()["id"]
+                    
+                    # Обновляем конфиг на новую VM
+                    cur.execute(
+                        f"UPDATE {schema}.deploy_configs SET vm_instance_id = %s WHERE name = %s",
+                        (new_vm_db_id, config_name)
+                    )
+                    conn.commit()
+                    
+                    logs.append(f"✅ Новая VM '{new_vm_name}' создаётся!")
+                    logs.append("⏳ Подожди 2-3 минуты и попробуй деплой снова")
+                    logs.append(f"   Конфиг автоматически привязан к новой VM")
+                    
+                    return {
+                        'statusCode': 202,
+                        'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                        'body': json.dumps({'message': 'VM создаётся', 'logs': logs, 'new_vm_id': new_vm_db_id}),
+                        'isBase64Encoded': False
+                    }
+                else:
+                    raise Exception(f"VM creation failed: {create_resp.text[:200]}")
+                    
+            except Exception as vm_error:
+                logs.append(f"❌ Не удалось создать VM: {str(vm_error)[:150]}")
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({'error': 'SSH failed and auto-create VM failed', 'logs': logs}),
+                    'isBase64Encoded': False
+                }
         
         def run_cmd(cmd: str, ignore_errors=False):
             stdin, stdout, stderr = ssh.exec_command(cmd)
