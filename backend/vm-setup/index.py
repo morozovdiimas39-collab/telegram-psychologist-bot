@@ -117,24 +117,27 @@ runcmd:
   - chown -R ubuntu:ubuntu /var/www
 """
         
-        # Создаём VM
+        # Создаём VM (используем минимальную конфигурацию)
         vm_payload = {
             "folderId": folder_id,
             "name": vm_name,
             "zoneId": "ru-central1-a",
-            "platformId": "standard-v2",
+            "platformId": "standard-v3",
             "resourcesSpec": {
-                "memory": str(2 * 1024 * 1024 * 1024),
-                "cores": 2
+                "memory": "2147483648",
+                "cores": "2",
+                "coreFraction": "20"
             },
             "metadata": {
-                "user-data": cloud_init
+                "user-data": cloud_init,
+                "serial-port-enable": "1"
             },
             "bootDiskSpec": {
                 "mode": "READ_WRITE",
                 "autoDelete": True,
                 "diskSpec": {
-                    "size": str(20 * 1024 * 1024 * 1024),
+                    "size": "21474836480",
+                    "typeId": "network-hdd",
                     "imageId": "fd8kdq6d0p8sij7h5qe3"
                 }
             },
@@ -145,7 +148,10 @@ runcmd:
                         "ipVersion": "IPV4"
                     }
                 }
-            }]
+            }],
+            "schedulingPolicy": {
+                "preemptible": False
+            }
         }
         
         response = requests.post(
