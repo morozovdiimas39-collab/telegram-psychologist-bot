@@ -93,7 +93,7 @@ export default function Deploy() {
   const handleDeploy = async (configName: string) => {
     setIsDeploying(configName);
     try {
-      const resp = await fetch('https://functions.yandexcloud.net/d4en6osf95hkv47nnaek', {
+      const resp = await fetch(API_ENDPOINTS.deployLong, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ config_name: configName })
@@ -106,8 +106,8 @@ export default function Deploy() {
       }
 
       toast({
-        title: "✅ Деплой запущен!",
-        description: data.logs ? data.logs.join('\n') : "Проект разворачивается на сервере"
+        title: "✅ Деплой завершён!",
+        description: data.url || "Сайт опубликован"
       });
     } catch (error: any) {
       toast({
