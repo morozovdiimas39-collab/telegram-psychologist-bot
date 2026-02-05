@@ -241,6 +241,79 @@ users:
       - {public_openssh}
 
 write_files:
+  - path: /usr/local/bin/deploy_server.py
+    permissions: '0755'
+    content: |
+      #!/usr/bin/env python3
+      from flask import Flask, request, jsonify
+      import subprocess
+      import os
+      
+      app = Flask(__name__)
+      
+      @app.route('/deploy', methods=['POST'])
+      def deploy():
+          data = request.get_json() or {{}}
+          domain = data.get('domain', 'example.com')
+          repo = data.get('repo', '')
+          github_token = data.get('github_token', '')
+          
+          if not repo:
+              return jsonify({{'error': 'repo required'}}), 400
+          
+          project_dir = f"/var/www/{{domain}}"
+          
+          try:
+              # Удаляем старую версию
+              subprocess.run(['sudo', 'rm', '-rf', project_dir], check=False)
+              subprocess.run(['sudo', 'mkdir', '-p', project_dir], check=True)
+              subprocess.run(['sudo', 'chown', '-R', 'ubuntu:ubuntu', project_dir], check=True)
+              
+              # Клонируем репо
+              if github_token:
+                  clone_url = f"https://{{github_token}}@github.com/{{repo}}.git"
+              else:
+                  clone_url = f"https://github.com/{{repo}}.git"
+              
+              subprocess.run(['git', 'clone', clone_url, project_dir], check=True, cwd='/tmp')
+              
+              # npm install и build
+              subprocess.run(['npm', 'install'], check=True, cwd=project_dir)
+              subprocess.run(['npm', 'run', 'build'], check=True, cwd=project_dir)
+              
+              # Настраиваем nginx
+              nginx_config = f"""server {{{{
+  listen 80;
+  server_name {{domain}};
+  root {{project_dir}}/dist;
+  index index.html;
+  
+  location / {{{{
+      try_files $uri $uri/ /index.html;
+  }}}}
+  
+  location ~ /\\.git {{{{
+      deny all;
+  }}}}
+}}}}"""
+              
+              with open(f'/etc/nginx/sites-available/{{domain}}', 'w') as f:
+                  f.write(nginx_config)
+              
+              subprocess.run(['sudo', 'ln', '-sf', f'/etc/nginx/sites-available/{{domain}}', f'/etc/nginx/sites-enabled/{{domain}}'], check=False)
+              subprocess.run(['sudo', 'nginx', '-t'], check=True)
+              subprocess.run(['sudo', 'systemctl', 'reload', 'nginx'], check=True)
+              
+              return jsonify({{'success': True, 'message': f'Deployed {{domain}}'}}), 200
+              
+          except subprocess.CalledProcessError as e:
+              return jsonify({{'error': str(e)}}), 500
+          except Exception as e:
+              return jsonify({{'error': str(e)}}), 500
+      
+      if __name__ == '__main__':
+          app.run(host='0.0.0.0', port=9000)
+  
   - path: /etc/systemd/system/deploy-webhook.service
     permissions: '0644'
     content: |
@@ -260,18 +333,12 @@ write_files:
       WantedBy=multi-user.target
 
 runcmd:
-  - systemctl enable docker && systemctl start docker
   - systemctl enable nginx && systemctl start nginx
-  - systemctl enable postgresql && systemctl start postgresql
-  - sudo -u postgres psql -c "ALTER USER postgres PASSWORD 'postgres';"
-  - sudo -u postgres psql -c "ALTER USER postgres WITH SUPERUSER;"
-  - echo "host all all 0.0.0.0/0 md5" >> /etc/postgresql/*/main/pg_hba.conf
-  - echo "listen_addresses = '*'" >> /etc/postgresql/*/main/postgresql.conf
-  - systemctl restart postgresql
   - mkdir -p /var/www
   - chown -R ubuntu:ubuntu /var/www
   - pip3 install flask requests
   - systemctl daemon-reload
+  - systemctl enable deploy-webhook && systemctl start deploy-webhook
   - echo 'VM готова' > /var/log/deploy_init.log
 """
         
