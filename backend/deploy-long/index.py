@@ -24,6 +24,8 @@ def handler(event: dict, context) -> dict:
 
     try:
         body_str = event.get('body', '{}')
+        if not body_str or body_str.strip() == '':
+            body_str = '{}'
         body = json.loads(body_str) if isinstance(body_str, str) else body_str
         
         config_name = body.get('config_name')
@@ -104,17 +106,23 @@ def handler(event: dict, context) -> dict:
         ssh = paramiko.SSHClient()
         ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
         
+        from io import StringIO
         try:
-            pkey = paramiko.RSAKey.from_private_key_file(None, password=None, key=ssh_key)
-        except:
-            from io import StringIO
             pkey = paramiko.RSAKey.from_private_key(StringIO(ssh_key))
+        except Exception as key_error:
+            logs.append(f"❌ Ошибка парсинга SSH ключа: {str(key_error)}")
+            return {
+                'statusCode': 400,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'error': 'Invalid SSH key format', 'logs': logs}),
+                'isBase64Encoded': False
+            }
         
         ssh.connect(
             hostname=vm_ip,
             username=ssh_user,
             pkey=pkey,
-            timeout=10,
+            timeout=30,
             allow_agent=False,
             look_for_keys=False
         )

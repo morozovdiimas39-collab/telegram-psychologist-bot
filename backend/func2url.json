@@ -1,13 +1,13 @@
 {
+  "deploy-long": "https://functions.poehali.dev/62645364-63f3-4bbf-afd4-f73eeef93252",
   "yc-sync": "https://functions.poehali.dev/a589b4d4-582a-4a50-bd68-b56b3df132f1",
+  "vm-setup": "https://functions.poehali.dev/d35d3c31-f4d9-4367-8193-9976ed641f46",
   "vm-list": "https://functions.poehali.dev/c6384df3-0021-4039-b979-dbd20bba7ab2",
   "deploy-config": "https://functions.poehali.dev/46b95dc8-bbde-4d2c-8d43-2999349ac79e",
   "metrika-goals": "https://functions.poehali.dev/68e9b314-2779-4c02-a2e7-30c01923111f",
   "quiz-api": "https://functions.poehali.dev/822872d6-b63d-4b6e-990b-cbd080d3143f",
   "migrate": "https://functions.poehali.dev/e861fe2a-7e02-4b5e-a948-b5cdf4f6e620",
   "deploy-functions": "https://functions.poehali.dev/bdf0df74-2961-4e8c-88bb-756cfc7c4bc1",
-  "yc-create": "https://functions.poehali.dev/473a90f3-4df5-49e2-8d37-930288a2b3eb",
-  "yc-setup": "https://functions.poehali.dev/0880c78f-c580-4ce2-ac63-30204ba2f627",
   "deploy": "https://functions.poehali.dev/aa6cb973-aa73-426a-8148-f1be1cbf3a3b",
   "setup-webhook": "https://functions.poehali.dev/34609f9a-b0e5-4c26-b134-096a596ceed9"
 }

@@ -1,11 +1,13 @@
 import json
 import os
 import psycopg2
+from psycopg2.extras import RealDictCursor
 import requests
+import base64
 
 
-def handler(event: dict, context) -> dict:
-    """Создание новой VM в Yandex Cloud с автонастройкой"""
+def handler(event, context):
+    """Автоматическое создание и настройка VM с генерацией SSH ключей"""
     method = event.get('httpMethod', 'POST')
 
     if method == 'OPTIONS':
@@ -22,31 +24,29 @@ def handler(event: dict, context) -> dict:
 
     try:
         body = json.loads(event.get('body', '{}'))
-        vm_name = body.get('name', 'vm-1')
+        vm_name = body.get('name', f'vm-{int(time.time())}')
         
-        # Подключаемся к БД
         dsn = os.environ['DATABASE_URL']
         schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
         conn = psycopg2.connect(dsn)
-        cur = conn.cursor()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Проверяем дубликат
-        cur.execute(f"SELECT id FROM {schema}.vm_instances WHERE name = %s", (vm_name,))
-        if cur.fetchone():
-            return {
-                'statusCode': 400,
-                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps({'error': f'VM {vm_name} уже существует'}),
-                'isBase64Encoded': False
-            }
+        # Генерируем SSH ключи
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
         
-        # Создаём запись
-        cur.execute(
-            f"INSERT INTO {schema}.vm_instances (name, status) VALUES (%s, 'creating') RETURNING id",
-            (vm_name,)
-        )
-        vm_id = cur.fetchone()[0]
-        conn.commit()
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode()
+        
+        public_key = private_key.public_key()
+        public_ssh = public_key.public_bytes(
+            encoding=serialization.Encoding.OpenSSH,
+            format=serialization.PublicFormat.OpenSSH
+        ).decode()
         
         # Получаем IAM токен
         oauth_token = os.environ['YANDEX_CLOUD_TOKEN']
@@ -55,6 +55,10 @@ def handler(event: dict, context) -> dict:
             json={'yandexPassportOauthToken': oauth_token},
             timeout=10
         )
+        
+        if iam_response.status_code != 200:
+            raise Exception(f'IAM token error: {iam_response.text}')
+        
         iam_token = iam_response.json()['iamToken']
         
         # Получаем folder_id
@@ -63,56 +67,141 @@ def handler(event: dict, context) -> dict:
         # Получаем subnet_id
         subnet_id = get_subnet_id(iam_token, folder_id)
         
-        # Создаём VM
-        ssh_key = os.environ.get('VM_SSH_PUBLIC_KEY', 'ssh-rsa AAAAB3...')
+        # Cloud-init скрипт для автонастройки
+        cloud_init = f"""#cloud-config
+users:
+  - name: ubuntu
+    groups: sudo
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    ssh-authorized-keys:
+      - {public_ssh}
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - nginx
+  - git
+  - curl
+  - postgresql
+  - postgresql-contrib
+  - nodejs
+  - npm
+
+runcmd:
+  - curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  - apt-get install -y nodejs
+  - npm install -g npm@latest
+  - systemctl start nginx
+  - systemctl enable nginx
+  - systemctl start postgresql
+  - systemctl enable postgresql
+  - mkdir -p /var/www
+  - chown -R ubuntu:ubuntu /var/www
+"""
         
+        # Создаём VM
         vm_payload = {
             "folderId": folder_id,
             "name": vm_name,
             "zoneId": "ru-central1-a",
             "platformId": "standard-v2",
-            "resourcesSpec": {"memory": str(2*1024*1024*1024), "cores": 2},
-            "metadata": {"user-data": cloud_init_script(ssh_key)},
+            "resourcesSpec": {
+                "memory": str(2 * 1024 * 1024 * 1024),
+                "cores": 2
+            },
+            "metadata": {
+                "user-data": cloud_init
+            },
             "bootDiskSpec": {
                 "mode": "READ_WRITE",
                 "autoDelete": True,
-                "diskSpec": {"size": str(20*1024*1024*1024), "imageId": "fd8kdq6d0p8sij7h5qe3"}
+                "diskSpec": {
+                    "size": str(20 * 1024 * 1024 * 1024),
+                    "imageId": "fd8kdq6d0p8sij7h5qe3"
+                }
             },
             "networkInterfaceSpecs": [{
                 "subnetId": subnet_id,
-                "primaryV4AddressSpec": {"oneToOneNatSpec": {"ipVersion": "IPV4"}}
+                "primaryV4AddressSpec": {
+                    "oneToOneNatSpec": {
+                        "ipVersion": "IPV4"
+                    }
+                }
             }]
         }
         
         response = requests.post(
             'https://compute.api.cloud.yandex.net/compute/v1/instances',
-            headers={'Authorization': f'Bearer {iam_token}', 'Content-Type': 'application/json'},
+            headers={
+                'Authorization': f'Bearer {iam_token}',
+                'Content-Type': 'application/json'
+            },
             json=vm_payload,
             timeout=30
         )
         
         if response.status_code not in [200, 201]:
-            raise Exception(f'Ошибка создания VM: {response.text}')
+            raise Exception(f'VM creation failed: {response.text}')
         
-        operation_id = response.json()['id']
+        result = response.json()
+        yandex_vm_id = result['metadata']['instanceId']
         
-        # Обновляем статус
+        # Ждём получения IP адреса
+        import time
+        ip_address = None
+        for _ in range(30):
+            vm_info = requests.get(
+                f'https://compute.api.cloud.yandex.net/compute/v1/instances/{yandex_vm_id}',
+                headers={'Authorization': f'Bearer {iam_token}'},
+                timeout=10
+            )
+            
+            if vm_info.status_code == 200:
+                vm_data = vm_info.json()
+                interfaces = vm_data.get('networkInterfaces', [])
+                if interfaces:
+                    nat_address = interfaces[0].get('primaryV4Address', {}).get('oneToOneNat', {})
+                    if nat_address.get('address'):
+                        ip_address = nat_address['address']
+                        break
+            
+            time.sleep(2)
+        
+        if not ip_address:
+            raise Exception('Failed to get VM IP address')
+        
+        # Сохраняем в БД
         cur.execute(
-            f"UPDATE {schema}.vm_instances SET yandex_vm_id = %s, status = 'creating' WHERE id = %s",
-            (operation_id, vm_id)
+            f"""
+            INSERT INTO {schema}.vm_instances 
+            (name, ip_address, ssh_user, ssh_private_key, yandex_vm_id, status)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id
+            """,
+            (vm_name, ip_address, 'ubuntu', private_pem, yandex_vm_id, 'running')
         )
+        
+        vm_id = cur.fetchone()['id']
         conn.commit()
         
+        cur.close()
+        conn.close()
+        
         return {
-            'statusCode': 202,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({
                 'success': True,
                 'vm_id': vm_id,
                 'name': vm_name,
-                'operation_id': operation_id,
-                'status': 'creating',
-                'message': 'VM создаётся, подождите 2-3 минуты'
+                'ip_address': ip_address,
+                'yandex_vm_id': yandex_vm_id,
+                'message': f'Сервер создан и настроен! IP: {ip_address}'
             }),
             'isBase64Encoded': False
         }
@@ -120,36 +209,48 @@ def handler(event: dict, context) -> dict:
     except Exception as e:
         return {
             'statusCode': 500,
-            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*'
+            },
             'body': json.dumps({'error': str(e)}),
             'isBase64Encoded': False
         }
-    finally:
-        if 'cur' in locals():
-            cur.close()
-        if 'conn' in locals():
-            conn.close()
 
 
-def get_folder_id(iam_token: str) -> str:
-    """Получить folder_id"""
+def get_folder_id(iam_token):
+    """Получить folder_id из Yandex Cloud"""
     headers = {'Authorization': f'Bearer {iam_token}'}
+    
     clouds_resp = requests.get(
         'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds',
         headers=headers,
         timeout=10
     )
-    cloud_id = clouds_resp.json()['clouds'][0]['id']
+    
+    if clouds_resp.status_code != 200:
+        raise Exception(f'Failed to get clouds: {clouds_resp.text}')
+    
+    clouds = clouds_resp.json().get('clouds', [])
+    if not clouds:
+        raise Exception('No clouds found')
+    
+    cloud_id = clouds[0]['id']
     
     folders_resp = requests.get(
         f'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}',
         headers=headers,
         timeout=10
     )
-    return folders_resp.json()['folders'][0]['id']
+    
+    folders = folders_resp.json().get('folders', [])
+    if not folders:
+        raise Exception('No folders found')
+    
+    return folders[0]['id']
 
 
-def get_subnet_id(iam_token: str, folder_id: str) -> str:
+def get_subnet_id(iam_token, folder_id):
     """Получить или создать subnet"""
     headers = {'Authorization': f'Bearer {iam_token}'}
     
@@ -159,6 +260,7 @@ def get_subnet_id(iam_token: str, folder_id: str) -> str:
         headers=headers,
         timeout=10
     )
+    
     networks = nets_resp.json().get('networks', [])
     
     if not networks:
@@ -166,10 +268,14 @@ def get_subnet_id(iam_token: str, folder_id: str) -> str:
         create_net = requests.post(
             'https://vpc.api.cloud.yandex.net/vpc/v1/networks',
             headers={**headers, 'Content-Type': 'application/json'},
-            json={'folderId': folder_id, 'name': 'default-net'},
+            json={'folderId': folder_id, 'name': 'default-network'},
             timeout=10
         )
-        network_id = create_net.json()['response']['id']
+        
+        if create_net.status_code not in [200, 201]:
+            raise Exception(f'Failed to create network: {create_net.text}')
+        
+        network_id = create_net.json()['id']
     else:
         network_id = networks[0]['id']
     
@@ -179,6 +285,7 @@ def get_subnet_id(iam_token: str, folder_id: str) -> str:
         headers=headers,
         timeout=10
     )
+    
     subnets = subnets_resp.json().get('subnets', [])
     
     for subnet in subnets:
@@ -198,53 +305,8 @@ def get_subnet_id(iam_token: str, folder_id: str) -> str:
         },
         timeout=10
     )
-    return create_subnet.json()['response']['id']
-
-
-def cloud_init_script(ssh_key: str) -> str:
-    """Cloud-init для автонастройки"""
-    return f"""#cloud-config
-users:
-  - name: ubuntu
-    groups: sudo
-    shell: /bin/bash
-    sudo: ['ALL=(ALL) NOPASSWD:ALL']
-    ssh-authorized-keys:
-      - {ssh_key}
-
-package_update: true
-packages: [nginx, git, curl, python3-pip, python3-flask]
-
-write_files:
-  - path: /opt/webhook/app.py
-    content: |
-      from flask import Flask, request, jsonify
-      import subprocess, os
-      app = Flask(__name__)
-      
-      @app.route('/deploy', methods=['POST'])
-      def deploy():
-          data = request.json
-          project_dir = '/var/www/app'
-          os.makedirs(project_dir, exist_ok=True)
-          
-          repo_url = data.get('repo_url')
-          if repo_url:
-              if os.path.exists(f'{{project_dir}}/.git'):
-                  subprocess.run(['git', '-C', project_dir, 'pull'], check=True)
-              else:
-                  subprocess.run(['git', 'clone', repo_url, project_dir], check=True)
-          
-          subprocess.run(['/root/.bun/bin/bun', 'install'], cwd=project_dir, check=True)
-          subprocess.run(['/root/.bun/bin/bun', 'run', 'build'], cwd=project_dir, check=True)
-          return jsonify({{'success': True}})
-      
-      app.run(host='0.0.0.0', port=9000)
-
-runcmd:
-  - curl -fsSL https://bun.sh/install | bash
-  - mkdir -p /var/www /opt/webhook
-  - python3 /opt/webhook/app.py &
-  - echo 'server {{ listen 80; root /var/www/app/dist; location / {{ try_files $uri /index.html; }} }}' > /etc/nginx/sites-available/default
-  - systemctl restart nginx
-"""
+    
+    if create_subnet.status_code not in [200, 201]:
+        raise Exception(f'Failed to create subnet: {create_subnet.text}')
+    
+    return create_subnet.json()['id']

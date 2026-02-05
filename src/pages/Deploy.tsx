@@ -253,14 +253,13 @@ export default function Deploy() {
   };
 
   const handleCreateVM = async () => {
-    const vmName = prompt("Введи имя для нового сервера (или оставь пустым для автоматического):");
+    const vmName = prompt("Введи имя для нового сервера (или оставь пустым):");
     
-    // Если пользователь нажал "Отмена"
     if (vmName === null) return;
     
     setIsCreatingVM(true);
     try {
-      const resp = await fetch(API_ENDPOINTS.ycCreate, {
+      const resp = await fetch(API_ENDPOINTS.vmSetup, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
@@ -271,15 +270,15 @@ export default function Deploy() {
       const data = await resp.json();
 
       if (!resp.ok) {
-        throw new Error(data.error || "Ошибка создания VM");
+        throw new Error(data.error || "Ошибка создания сервера");
       }
 
       toast({
-        title: "✅ VM создаётся!",
-        description: data.logs ? data.logs.join('\n') : "VM создаётся 2-3 минуты"
+        title: "✅ Сервер создан!",
+        description: `IP: ${data.ip_address} - готов к деплою`
       });
 
-      setTimeout(() => handleSyncVMs(), 5000);
+      loadVMs();
     } catch (error: any) {
       toast({
         title: "Ошибка",
