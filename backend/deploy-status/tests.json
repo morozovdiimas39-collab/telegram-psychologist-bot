@@ -1,0 +1,10 @@
+{
+  "tests": [
+    {
+      "name": "GET without config_name returns 400",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 400
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "Get quiz by slug",
+      "method": "GET",
+      "path": "/?action=get&slug=realty-quiz",
+      "expectedStatus": 200,
+      "expectedBody": {
+        "id": "number",
+        "title": "string",
+        "questions": "array"
+      },
+      "bodyMatcher": "partial"
+    },
+    {
+      "name": "Get all quizzes",
+      "method": "GET",
+      "path": "/?action=list",
+      "expectedStatus": 200,
+      "bodyMatcher": "partial"
+    }
+  ]
+}

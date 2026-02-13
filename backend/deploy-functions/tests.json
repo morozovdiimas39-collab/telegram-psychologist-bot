@@ -1,0 +1,17 @@
+{
+  "tests": [
+    {
+      "name": "Deploy functions",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "github_url": "https://github.com/test/repo"
+      },
+      "expectedStatus": 200,
+      "expectedBody": {
+        "success": true
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

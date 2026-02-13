@@ -1,0 +1,826 @@
+import json
+import os
+import psycopg2
+from psycopg2.extras import RealDictCursor
+import requests
+import time
+
+
+def handler(event: dict, context) -> dict:
+    """Автоматическое создание VM с PostgreSQL для использования как общей БД"""
+    method = event.get('httpMethod', 'POST')
+
+    if method == 'OPTIONS':
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': 'POST, OPTIONS',
+                'Access-Control-Allow-Headers': 'Content-Type'
+            },
+            'body': '',
+            'isBase64Encoded': False
+        }
+
+    try:
+        body = json.loads(event.get('body', '{}'))
+        db_name = body.get('db_name', 'deployer')
+        db_user = body.get('db_user', 'deployer_user')
+        db_password = body.get('db_password')  # Если не указан, сгенерируем
+        
+        logs = []
+        logs.append("🗄️ Создание VM с PostgreSQL для общей БД...")
+        logs.append("")
+        print("🗄️ Создание VM с PostgreSQL для общей БД...")
+        
+        # Генерируем пароль если не указан
+        if not db_password:
+            import secrets
+            db_password = secrets.token_urlsafe(16)
+            logs.append(f"🔑 Сгенерирован пароль БД: {db_password}")
+            logs.append("   ⚠️ СОХРАНИ ЕГО! Он больше не будет показан.")
+            logs.append("")
+        
+        # Получаем переменные окружения
+        dsn = os.environ.get('DATABASE_URL')  # Временная БД для сохранения информации
+        schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
+        oauth_token = os.environ.get('YANDEX_CLOUD_TOKEN')
+        service_account_id = os.environ.get('YANDEX_SERVICE_ACCOUNT_ID')  # ID сервисного аккаунта для 'iss'
+        service_account_key_id = os.environ.get('YANDEX_SERVICE_ACCOUNT_KEY_ID')  # ID ключа для 'kid'
+        service_account_private_key = os.environ.get('YANDEX_SERVICE_ACCOUNT_PRIVATE_KEY')
+        
+        # Получаем IAM токен
+        logs.append("🔐 Получаю IAM токен...")
+        print("🔐 Получаю IAM токен...")
+        
+        # Если указан ID сервисного аккаунта отдельно, используем его для 'iss', иначе используем ID ключа
+        if service_account_id:
+            issuer_id = service_account_id
+        else:
+            issuer_id = service_account_key_id
+        
+        if service_account_key_id and service_account_private_key:
+            # Используем ключ сервисного аккаунта
+            logs.append("   Использую ключ сервисного аккаунта...")
+            try:
+                import jwt
+                import time
+                
+                # Подготавливаем приватный ключ
+                # Убеждаемся, что ключ в правильном формате PEM
+                private_key = service_account_private_key.strip()
+                
+                # Заменяем литеральные \n на реальные переносы строк (если ключ был скопирован как строка)
+                private_key = private_key.replace('\\n', '\n')
+                
+                # Убираем служебные строки Yandex Cloud, если они есть
+                if 'PLEASE DO NOT REMOVE' in private_key:
+                    # Извлекаем только часть после строки с ключом
+                    lines = private_key.split('\n')
+                    key_lines = []
+                    in_key = False
+                    for line in lines:
+                        if '-----BEGIN PRIVATE KEY-----' in line:
+                            in_key = True
+                        if in_key:
+                            key_lines.append(line)
+                        if '-----END PRIVATE KEY-----' in line:
+                            break
+                    private_key = '\n'.join(key_lines)
+                
+                # Если ключ в одну строку (без переносов), форматируем его
+                if '\n' not in private_key or not private_key.startswith('-----BEGIN'):
+                    # Убираем все пробелы и переносы строк
+                    key_content = private_key.replace(' ', '').replace('\n', '').replace('\r', '')
+                    
+                    # Убираем BEGIN/END маркеры, если они есть в одной строке
+                    if '-----BEGIN' in key_content:
+                        key_content = key_content.split('-----BEGIN PRIVATE KEY-----')[1]
+                    if '-----END' in key_content:
+                        key_content = key_content.split('-----END PRIVATE KEY-----')[0]
+                    
+                    # Разбиваем на строки по 64 символа (стандарт PEM)
+                    formatted_key = '\n'.join([key_content[i:i+64] for i in range(0, len(key_content), 64)])
+                    private_key = f"-----BEGIN PRIVATE KEY-----\n{formatted_key}\n-----END PRIVATE KEY-----"
+                else:
+                    # Ключ уже в многострочном формате, но проверяем форматирование
+                    if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                        # Добавляем BEGIN, если его нет
+                        if 'BEGIN' not in private_key:
+                            private_key = f"-----BEGIN PRIVATE KEY-----\n{private_key}"
+                    
+                    if not private_key.endswith('-----END PRIVATE KEY-----'):
+                        # Добавляем END, если его нет
+                        if 'END' not in private_key:
+                            private_key = f"{private_key}\n-----END PRIVATE KEY-----"
+                    
+                    # Убираем лишние пробелы в начале строк
+                    lines = private_key.split('\n')
+                    cleaned_lines = []
+                    for line in lines:
+                        if line.strip():  # Пропускаем пустые строки
+                            cleaned_lines.append(line.strip())
+                    private_key = '\n'.join(cleaned_lines)
+                    
+                    # Убеждаемся, что BEGIN и END на месте
+                    if not private_key.startswith('-----BEGIN PRIVATE KEY-----'):
+                        private_key = f"-----BEGIN PRIVATE KEY-----\n{private_key}"
+                    if not private_key.endswith('-----END PRIVATE KEY-----'):
+                        private_key = f"{private_key}\n-----END PRIVATE KEY-----"
+                
+                # Создаём JWT токен для сервисного аккаунта
+                # ВАЖНО: Для Yandex Cloud:
+                # - 'iss' должен быть ID сервисного аккаунта (ajea2l0hjh86sa9a3g08)
+                # - 'kid' должен быть ID ключа (ajeke7hvv73d03siopbo)
+                now = int(time.time())
+                payload = {
+                    'aud': 'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+                    'iss': issuer_id,  # ID сервисного аккаунта
+                    'iat': now,
+                    'exp': now + 3600
+                }
+                
+                logs.append(f"   Создаю JWT с issuer: {issuer_id} (ID сервисного аккаунта)")
+                logs.append(f"   Использую key ID: {service_account_key_id} (ID ключа)")
+                
+                # Проверяем и загружаем приватный ключ через cryptography
+                try:
+                    from cryptography.hazmat.primitives import serialization
+                    from cryptography.hazmat.backends import default_backend
+                    
+                    # Пытаемся загрузить ключ через cryptography для проверки
+                    try:
+                        key_obj = serialization.load_pem_private_key(
+                            private_key.encode('utf-8'),
+                            password=None,
+                            backend=default_backend()
+                        )
+                        # Если успешно загружен, экспортируем обратно в PEM для гарантии правильного формата
+                        private_key_pem = key_obj.private_bytes(
+                            encoding=serialization.Encoding.PEM,
+                            format=serialization.PrivateFormat.PKCS8,
+                            encryption_algorithm=serialization.NoEncryption()
+                        ).decode('utf-8')
+                        private_key = private_key_pem
+                        logs.append("   ✅ Ключ успешно загружен и отформатирован через cryptography")
+                    except Exception as crypto_error:
+                        logs.append(f"   ⚠️ Ошибка загрузки ключа через cryptography: {str(crypto_error)[:100]}")
+                        logs.append("   Пробую использовать ключ напрямую...")
+                        # Продолжаем с исходным ключом
+                except ImportError:
+                    # cryptography уже импортирован выше, но на всякий случай
+                    pass
+                
+                # Создаём JWT с использованием приватного ключа и алгоритма PS256
+                # Yandex Cloud требует алгоритм PS256, а не RS256
+                # Добавляем поле 'kid' в заголовок JWT (требуется Yandex Cloud) - это должен быть ID ключа
+                headers = {'kid': service_account_key_id}  # ID ключа для 'kid'
+                jwt_token = jwt.encode(payload, private_key, algorithm='PS256', headers=headers)
+                
+                logs.append("   ✅ JWT токен создан")
+                
+                iam_resp = requests.post(
+                    'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+                    json={'jwt': jwt_token},
+                    timeout=10
+                )
+            except ImportError:
+                logs.append("   ⚠️ Библиотека jwt не установлена")
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({
+                        'error': 'Для использования ключа сервисного аккаунта нужна библиотека PyJWT',
+                        'hint': 'Добавь PyJWT>=2.8.0 в requirements.txt или используй YANDEX_CLOUD_TOKEN (OAuth токен)'
+                    }),
+                    'isBase64Encoded': False
+                }
+            except jwt.InvalidKeyError as e:
+                logs.append(f"   ⚠️ Ошибка формата ключа: {str(e)}")
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({
+                        'error': f'Неверный формат приватного ключа: {str(e)}',
+                        'hint': 'Убедись, что ключ в формате PEM и включает строки -----BEGIN PRIVATE KEY----- и -----END PRIVATE KEY-----'
+                    }),
+                    'isBase64Encoded': False
+                }
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                logs.append(f"   ⚠️ Ошибка создания JWT: {str(e)}")
+                return {
+                    'statusCode': 500,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps({
+                        'error': f'Ошибка создания JWT токена: {str(e)}',
+                        'details': error_details,
+                        'hint': 'Проверь формат приватного ключа и ID ключа. Убедись, что используется ID сервисного аккаунта, а не ID ключа (если ID ключа не работает)'
+                    }),
+                    'isBase64Encoded': False
+                }
+        elif oauth_token:
+            # Используем OAuth токен пользователя
+            logs.append("   Использую OAuth токен...")
+            iam_resp = requests.post(
+                'https://iam.api.cloud.yandex.net/iam/v1/tokens',
+                json={'yandexPassportOauthToken': oauth_token},
+                timeout=10
+            )
+        else:
+            return {
+                'statusCode': 500,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({
+                    'error': 'Не настроен YANDEX_CLOUD_TOKEN или ключи сервисного аккаунта',
+                    'hint': 'Нужен либо YANDEX_CLOUD_TOKEN (OAuth токен), либо YANDEX_SERVICE_ACCOUNT_ID (ID сервисного аккаунта) + YANDEX_SERVICE_ACCOUNT_KEY_ID (ID ключа) + YANDEX_SERVICE_ACCOUNT_PRIVATE_KEY (приватный ключ в формате PEM)'
+                }),
+                'isBase64Encoded': False
+            }
+        
+        if iam_resp.status_code != 200:
+            error_text = iam_resp.text
+            logs.append(f"   ❌ Ошибка получения IAM токена: {iam_resp.status_code}")
+            logs.append(f"   Ответ сервера: {error_text}")
+            
+            # Дополнительная подсказка для ошибки 401
+            if iam_resp.status_code == 401:
+                hint = "Возможно, используется неверный ID ключа. Попробуй использовать ID сервисного аккаунта вместо ID ключа в переменной YANDEX_SERVICE_ACCOUNT_KEY_ID"
+            else:
+                hint = "Проверь правильность ключа и ID"
+            
+            raise Exception(f'IAM token error: {iam_resp.status_code} - {error_text}. {hint}')
+        
+        iam_token = iam_resp.json()['iamToken']
+        headers = {'Authorization': f'Bearer {iam_token}'}
+        
+        # Получаем folder_id
+        # Сначала проверяем, не указан ли folder_id в переменных окружения
+        folder_id = os.environ.get('YANDEX_FOLDER_ID')
+        
+        if folder_id:
+            logs.append(f"☁️ Использую folder_id из переменной окружения: {folder_id}")
+        else:
+            logs.append("☁️ Получаю folder...")
+            
+            # Сначала пробуем получить folder_id напрямую через список folders
+            folders_resp = requests.get(
+                'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders',
+                headers=headers,
+                timeout=10
+            )
+            
+            if folders_resp.status_code == 200:
+                folders = folders_resp.json().get('folders', [])
+                if folders:
+                    folder_id = folders[0]['id']
+                    logs.append(f"✅ Folder ID получен напрямую: {folder_id}")
+            
+            # Если не получилось, пробуем через clouds
+            if not folder_id:
+                logs.append("   Пробую получить folder через clouds...")
+                clouds_resp = requests.get(
+                    'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds',
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if clouds_resp.status_code != 200:
+                    error_text = clouds_resp.text
+                    logs.append(f"   ❌ Ошибка получения clouds: {clouds_resp.status_code} - {error_text}")
+                    raise Exception(f'Failed to get clouds: {error_text}. Возможно, у сервисного аккаунта нет прав на просмотр облаков. Добавь роль "viewer" или "editor" на уровне облака.')
+                
+                clouds = clouds_resp.json().get('clouds', [])
+                if not clouds:
+                    logs.append("   ⚠️ Облака не найдены")
+                    raise Exception('No clouds found. Убедись, что у сервисного аккаунта есть права на просмотр облаков (роль "viewer" или "editor" на уровне облака).')
+                
+                cloud_id = clouds[0]['id']
+                logs.append(f"   ✅ Cloud ID: {cloud_id}")
+                
+                folders_resp = requests.get(
+                    f'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}',
+                    headers=headers,
+                    timeout=10
+                )
+                
+                if folders_resp.status_code != 200:
+                    error_text = folders_resp.text
+                    logs.append(f"   ❌ Ошибка получения folders: {folders_resp.status_code} - {error_text}")
+                    raise Exception(f'Failed to get folders: {error_text}')
+                
+                folders = folders_resp.json().get('folders', [])
+                if not folders:
+                    logs.append("   ⚠️ Folders не найдены")
+                    raise Exception('No folders found. Убедись, что в облаке есть хотя бы один каталог (folder).')
+                
+                folder_id = folders[0]['id']
+                logs.append(f"✅ Folder ID: {folder_id}")
+        
+        if not folder_id:
+            raise Exception('Не удалось получить folder_id. Укажи его в переменной окружения YANDEX_FOLDER_ID или добавь права сервисному аккаунту на просмотр облаков.')
+        
+        # Получаем subnet_id
+        logs.append("🌐 Получаю сеть...")
+        nets_resp = requests.get(
+            f'https://vpc.api.cloud.yandex.net/vpc/v1/networks?folderId={folder_id}',
+            headers=headers,
+            timeout=10
+        )
+        
+        networks = nets_resp.json().get('networks', [])
+        
+        if not networks:
+            create_net = requests.post(
+                'https://vpc.api.cloud.yandex.net/vpc/v1/networks',
+                headers={**headers, 'Content-Type': 'application/json'},
+                json={'folderId': folder_id, 'name': 'default-network'},
+                timeout=10
+            )
+            
+            if create_net.status_code not in [200, 201]:
+                raise Exception(f'Failed to create network: {create_net.text}')
+            
+            network_id = create_net.json()['id']
+        else:
+            network_id = networks[0]['id']
+        
+        subnets_resp = requests.get(
+            f'https://vpc.api.cloud.yandex.net/vpc/v1/subnets?folderId={folder_id}',
+            headers=headers,
+            timeout=10
+        )
+        
+        subnets = subnets_resp.json().get('subnets', [])
+        
+        subnet_id = None
+        for subnet in subnets:
+            if subnet.get('zoneId') == 'ru-central1-a':
+                subnet_id = subnet['id']
+                break
+        
+        if not subnet_id:
+            create_subnet = requests.post(
+                'https://vpc.api.cloud.yandex.net/vpc/v1/subnets',
+                headers={**headers, 'Content-Type': 'application/json'},
+                json={
+                    'folderId': folder_id,
+                    'name': 'subnet-a',
+                    'networkId': network_id,
+                    'zoneId': 'ru-central1-a',
+                    'v4CidrBlocks': ['10.128.0.0/24']
+                },
+                timeout=10
+            )
+            
+            if create_subnet.status_code not in [200, 201]:
+                raise Exception(f'Failed to create subnet: {create_subnet.text}')
+            
+            subnet_id = create_subnet.json()['id']
+        
+        logs.append(f"✅ Сеть настроена")
+        logs.append("")
+        print("✅ Сеть настроена")
+        
+        # Генерируем SSH ключи для VM
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        from cryptography.hazmat.primitives import serialization
+        
+        private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+        private_pem = private_key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.TraditionalOpenSSL,
+            encryption_algorithm=serialization.NoEncryption()
+        ).decode()
+        
+        public_key = private_key.public_key()
+        public_ssh = public_key.public_bytes(
+            encoding=serialization.Encoding.OpenSSH,
+            format=serialization.PublicFormat.OpenSSH
+        ).decode()
+        
+        # Cloud-init скрипт для установки PostgreSQL
+        # Генерируем уникальное имя VM с timestamp, чтобы избежать конфликтов
+        import time
+        timestamp = int(time.time())
+        vm_name = f'db-server-{timestamp}'
+        cloud_init = f"""#cloud-config
+# Разрешить вход по паролю через SSH и Serial Console
+ssh_pwauth: true
+disable_root: false
+
+users:
+  - name: ubuntu
+    groups: sudo
+    shell: /bin/bash
+    sudo: ['ALL=(ALL) NOPASSWD:ALL']
+    lock_passwd: false
+    passwd: $6$rounds=4096$salt$hashed_password_here
+    ssh-authorized-keys:
+      - {public_ssh}
+  - name: root
+    lock_passwd: false
+    passwd: $6$rounds=4096$salt$hashed_password_here
+
+package_update: true
+package_upgrade: true
+
+packages:
+  - postgresql
+  - postgresql-contrib
+  - ufw
+  - net-tools
+
+write_files:
+  - path: /var/log/postgresql-setup.log
+    permissions: '0644'
+    content: |
+      PostgreSQL setup log started
+      
+runcmd:
+  - |
+    echo "Настройка доступа для Serial Console..." | tee -a /var/log/postgresql-setup.log
+    # Установка паролей для входа
+    echo "root:root123" | chpasswd
+    echo "ubuntu:ubuntu123" | chpasswd
+    # Разрешить вход root через пароль в SSH
+    sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+    sed -i 's/PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+    # Разрешить вход по паролю в SSH
+    sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
+    sed -i 's/PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
+    sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config 2>/dev/null || true
+    # Настройка getty для Serial Console
+    systemctl enable serial-getty@ttyS0.service 2>/dev/null || true
+    systemctl start serial-getty@ttyS0.service 2>/dev/null || true
+    # Перезапуск SSH для применения настроек
+    systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || true
+    echo "Пароли установлены:" | tee -a /var/log/postgresql-setup.log
+    echo "  root / root123" | tee -a /var/log/postgresql-setup.log
+    echo "  ubuntu / ubuntu123" | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "=== Начало установки PostgreSQL ===" | tee -a /var/log/postgresql-setup.log
+    date | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "Установка пакетов PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+    apt-get update -y | tee -a /var/log/postgresql-setup.log
+    apt-get install -y postgresql postgresql-contrib ufw net-tools | tee -a /var/log/postgresql-setup.log
+    echo "Проверка установки PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+    which psql | tee -a /var/log/postgresql-setup.log
+    psql --version | tee -a /var/log/postgresql-setup.log
+    echo "Пакеты PostgreSQL установлены" | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "Запуск PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+    PG_VERSION=$(ls /etc/postgresql/ 2>/dev/null | head -n 1)
+    echo "Найдена версия PostgreSQL: $PG_VERSION" | tee -a /var/log/postgresql-setup.log
+    if [ -n "$PG_VERSION" ]; then
+      echo "Запуск кластера PostgreSQL $PG_VERSION..." | tee -a /var/log/postgresql-setup.log
+      systemctl start postgresql@$PG_VERSION-main 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      systemctl enable postgresql@$PG_VERSION-main 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      systemctl start postgresql 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      systemctl enable postgresql 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      sleep 5
+      echo "Проверка статуса мета-сервиса PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+      systemctl status postgresql | tee -a /var/log/postgresql-setup.log
+      echo "Проверка статуса кластера PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+      systemctl status postgresql@$PG_VERSION-main | tee -a /var/log/postgresql-setup.log
+      echo "Проверка процесса PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+      ps aux | grep postgres | grep -v grep | tee -a /var/log/postgresql-setup.log || echo "Процесс PostgreSQL не найден!" | tee -a /var/log/postgresql-setup.log
+      echo "Проверка порта 5432..." | tee -a /var/log/postgresql-setup.log
+      netstat -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log || ss -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log || echo "Порт 5432 не слушается" | tee -a /var/log/postgresql-setup.log
+    else
+      echo "ОШИБКА: Версия PostgreSQL не найдена!" | tee -a /var/log/postgresql-setup.log
+    fi
+  - |
+    echo "Создание базы данных и пользователя..." | tee -a /var/log/postgresql-setup.log
+    PG_VERSION=$(ls /etc/postgresql/ 2>/dev/null | head -n 1)
+    echo "Версия PostgreSQL для настройки: $PG_VERSION" | tee -a /var/log/postgresql-setup.log
+    if [ -z "$PG_VERSION" ]; then
+      echo "ОШИБКА: Версия PostgreSQL не найдена!" | tee -a /var/log/postgresql-setup.log
+      exit 1
+    fi
+    echo "Проверка доступности PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "SELECT version();" 2>&1 | tee -a /var/log/postgresql-setup.log
+    echo "Создание базы данных {db_name}..." | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "CREATE DATABASE {db_name};" 2>&1 | tee -a /var/log/postgresql-setup.log
+    echo "Создание пользователя {db_user}..." | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "CREATE USER {db_user} WITH PASSWORD '{db_password}';" 2>&1 | tee -a /var/log/postgresql-setup.log
+    echo "Выдача прав пользователю..." | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE {db_name} TO {db_user};" 2>&1 | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "ALTER USER {db_user} CREATEDB;" 2>&1 | tee -a /var/log/postgresql-setup.log
+    echo "Проверка созданной базы данных..." | tee -a /var/log/postgresql-setup.log
+    sudo -u postgres psql -c "\\l" | grep {db_name} | tee -a /var/log/postgresql-setup.log
+    echo "База данных создана успешно" | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "Настройка PostgreSQL для внешних подключений..." | tee -a /var/log/postgresql-setup.log
+    PG_VERSION=$(ls /etc/postgresql/ 2>/dev/null | head -n 1)
+    echo "Найдена версия PostgreSQL: $PG_VERSION" | tee -a /var/log/postgresql-setup.log
+    if [ -n "$PG_VERSION" ]; then
+      echo "Настройка postgresql.conf..." | tee -a /var/log/postgresql-setup.log
+      # Убеждаемся, что listen_addresses установлен в '*'
+      sudo sed -i "s/#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/$PG_VERSION/main/postgresql.conf
+      sudo sed -i "s/listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/$PG_VERSION/main/postgresql.conf
+      # Если listen_addresses не найден, добавляем его
+      if ! grep -q "^listen_addresses" /etc/postgresql/$PG_VERSION/main/postgresql.conf; then
+        echo "listen_addresses = '*'" | sudo tee -a /etc/postgresql/$PG_VERSION/main/postgresql.conf
+      fi
+      echo "Проверка listen_addresses..." | tee -a /var/log/postgresql-setup.log
+      grep "^listen_addresses" /etc/postgresql/$PG_VERSION/main/postgresql.conf | tee -a /var/log/postgresql-setup.log
+      echo "Настройка pg_hba.conf..." | tee -a /var/log/postgresql-setup.log
+      # Удаляем старую запись, если есть
+      sudo sed -i '/^host.*all.*all.*0\.0\.0\.0\/0.*md5/d' /etc/postgresql/$PG_VERSION/main/pg_hba.conf
+      # Добавляем новую запись для внешних подключений
+      echo "host    all    all    0.0.0.0/0    md5" | sudo tee -a /etc/postgresql/$PG_VERSION/main/pg_hba.conf
+      echo "Проверка pg_hba.conf..." | tee -a /var/log/postgresql-setup.log
+      tail -n 3 /etc/postgresql/$PG_VERSION/main/pg_hba.conf | tee -a /var/log/postgresql-setup.log
+      echo "Перезапуск PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+      systemctl restart postgresql@$PG_VERSION-main 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      systemctl restart postgresql 2>&1 | tee -a /var/log/postgresql-setup.log || true
+      sleep 5
+      echo "Проверка статуса кластера PostgreSQL..." | tee -a /var/log/postgresql-setup.log
+      systemctl status postgresql@$PG_VERSION-main | tee -a /var/log/postgresql-setup.log
+      echo "Проверка порта 5432..." | tee -a /var/log/postgresql-setup.log
+      netstat -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log || ss -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log
+      echo "Проверка версии PostgreSQL через SQL..." | tee -a /var/log/postgresql-setup.log
+      sudo -u postgres psql -c "SELECT version();" 2>&1 | tee -a /var/log/postgresql-setup.log
+      echo "Проверка базы данных через SQL..." | tee -a /var/log/postgresql-setup.log
+      sudo -u postgres psql -c "\\l" 2>&1 | tee -a /var/log/postgresql-setup.log
+      echo "Проверка пользователей через SQL..." | tee -a /var/log/postgresql-setup.log
+      sudo -u postgres psql -c "\\du" 2>&1 | tee -a /var/log/postgresql-setup.log
+    else
+      echo "ОШИБКА: Версия PostgreSQL не найдена!" | tee -a /var/log/postgresql-setup.log
+    fi
+  - |
+    echo "Настройка firewall..." | tee -a /var/log/postgresql-setup.log
+    ufw allow 5432/tcp | tee -a /var/log/postgresql-setup.log
+    ufw --force enable | tee -a /var/log/postgresql-setup.log
+    ufw status | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "Проверка порта 5432..." | tee -a /var/log/postgresql-setup.log
+    sleep 3
+    netstat -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log || ss -tlnp | grep 5432 | tee -a /var/log/postgresql-setup.log || echo "Порт 5432 не найден" | tee -a /var/log/postgresql-setup.log
+  - |
+    echo "=== Установка PostgreSQL завершена ===" | tee -a /var/log/postgresql-setup.log
+    date | tee -a /var/log/postgresql-setup.log
+    cat /var/log/postgresql-setup.log
+"""
+        
+        # Создаём VM
+        logs.append("🖥️ Создаю VM для PostgreSQL...")
+        print("🖥️ Создаю VM для PostgreSQL...")
+        vm_payload = {
+            "folderId": folder_id,
+            "name": vm_name,
+            "zoneId": "ru-central1-a",
+            "platformId": "standard-v3",
+            "resourcesSpec": {
+                "memory": "2147483648",  # 2 GB
+                "cores": "2",
+                "coreFraction": "20"
+            },
+            "metadata": {
+                "user-data": cloud_init,
+                "serial-port-enable": "1"
+            },
+            "bootDiskSpec": {
+                "mode": "READ_WRITE",
+                "autoDelete": True,
+                "diskSpec": {
+                    "size": "21474836480",  # 20 GB
+                    "typeId": "network-hdd",
+                    "imageId": "fd8kdq6d0p8sij7h5qe3"  # Ubuntu 22.04
+                }
+            },
+            "networkInterfaceSpecs": [{
+                "subnetId": subnet_id,
+                "primaryV4AddressSpec": {
+                    "oneToOneNatSpec": {
+                        "ipVersion": "IPV4"
+                    }
+                }
+            }],
+            "schedulingPolicy": {
+                "preemptible": False
+            }
+        }
+        
+        response = requests.post(
+            'https://compute.api.cloud.yandex.net/compute/v1/instances',
+            headers={**headers, 'Content-Type': 'application/json'},
+            json=vm_payload,
+            timeout=30
+        )
+        
+        if response.status_code not in [200, 201]:
+            raise Exception(f'VM creation failed: {response.text}')
+        
+        result = response.json()
+        yandex_vm_id = result['metadata']['instanceId']
+        logs.append(f"✅ VM создана: {yandex_vm_id}")
+        logs.append("⏳ Жду назначения IP адреса...")
+        print(f"✅ VM создана: {yandex_vm_id}")
+        print("⏳ Жду назначения IP адреса...")
+        
+        # Ждём получения IP адреса
+        ip_address = None
+        for i in range(30):
+            time.sleep(2)
+            vm_info = requests.get(
+                f'https://compute.api.cloud.yandex.net/compute/v1/instances/{yandex_vm_id}',
+                headers=headers,
+                timeout=10
+            )
+            
+            if vm_info.status_code == 200:
+                vm_data = vm_info.json()
+                interfaces = vm_data.get('networkInterfaces', [])
+                if interfaces:
+                    nat_address = interfaces[0].get('primaryV4Address', {}).get('oneToOneNat', {})
+                    if nat_address.get('address'):
+                        ip_address = nat_address['address']
+                        break
+            
+            if i % 5 == 0:
+                logs.append(f"   Ожидание IP... ({i*2} сек)")
+        
+        if not ip_address:
+            raise Exception('Failed to get VM IP address')
+        
+        logs.append(f"✅ IP адрес получен: {ip_address}")
+        logs.append("")
+        logs.append("⏳ Жду готовности PostgreSQL (это займёт 3-5 минут)...")
+        logs.append("   ⚠️ Установка PostgreSQL на VM может занять время")
+        logs.append("   Проверь Serial Console VM для деталей установки")
+        print(f"✅ IP адрес получен: {ip_address}")
+        print("⏳ Жду готовности PostgreSQL (это займёт 3-5 минут)...")
+        print("   ⚠️ Установка PostgreSQL на VM может занять время")
+        print("   Проверь Serial Console VM для деталей установки")
+        
+        # Ждём пока PostgreSQL станет доступен
+        database_url = f"postgresql://{db_user}:{db_password}@{ip_address}:5432/{db_name}"
+        
+        # Даём VM время на загрузку и установку PostgreSQL через cloud-init
+        # Cloud-init обычно завершается за 3-6 минут
+        initial_wait = 180  # 3 минуты для начала установки
+        logs.append(f"   Жду {initial_wait} секунд для установки PostgreSQL на VM (cloud-init)...")
+        print(f"   Жду {initial_wait} секунд для установки PostgreSQL на VM (cloud-init)...")
+        time.sleep(initial_wait)
+        
+        # Проверяем подключение к PostgreSQL
+        postgres_ready = False
+        max_attempts = 120  # 120 попыток по 5 секунд = 10 минут
+        logs.append(f"   Начинаю проверку подключения к PostgreSQL на {ip_address}:5432...")
+        print(f"   Начинаю проверку подключения к PostgreSQL на {ip_address}:5432...")
+        
+        for attempt in range(max_attempts):
+            try:
+                # Пробуем подключиться к PostgreSQL
+                test_conn = psycopg2.connect(
+                    database_url,
+                    connect_timeout=10
+                )
+                # Проверяем, что подключение работает
+                cursor = test_conn.cursor()
+                cursor.execute("SELECT version();")
+                version = cursor.fetchone()
+                cursor.close()
+                test_conn.close()
+                postgres_ready = True
+                logs.append(f"✅ PostgreSQL готов! Версия: {version[0][:50]}...")
+                logs.append(f"✅ Подключение успешно! (попытка {attempt + 1}/{max_attempts})")
+                print(f"✅ PostgreSQL готов! Версия: {version[0][:50]}...")
+                print(f"✅ Подключение успешно! (попытка {attempt + 1}/{max_attempts})")
+                break
+            except psycopg2.OperationalError as e:
+                error_msg = str(e)
+                if attempt % 10 == 0 or attempt < 5:
+                    elapsed = initial_wait + (attempt + 1) * 5
+                    logs.append(f"   Проверка подключения... ({attempt + 1}/{max_attempts}, всего прошло {elapsed} сек)")
+                    logs.append(f"   Ошибка подключения: {error_msg[:150]}")
+                    print(f"   Проверка подключения... ({attempt + 1}/{max_attempts}, всего прошло {elapsed} сек)")
+                    print(f"   Ошибка подключения: {error_msg[:150]}")
+            except Exception as e:
+                error_msg = str(e)
+                if attempt % 10 == 0 or attempt < 5:
+                    elapsed = initial_wait + (attempt + 1) * 5
+                    logs.append(f"   Проверка подключения... ({attempt + 1}/{max_attempts}, всего прошло {elapsed} сек)")
+                    logs.append(f"   Ошибка: {error_msg[:150]}")
+                    print(f"   Проверка подключения... ({attempt + 1}/{max_attempts}, всего прошло {elapsed} сек)")
+                    print(f"   Ошибка: {error_msg[:150]}")
+            time.sleep(5)
+        
+        if not postgres_ready:
+            logs.append("⚠️ PostgreSQL не отвечает после ожидания")
+            logs.append(f"   VM создана: {yandex_vm_id}")
+            logs.append(f"   IP адрес: {ip_address}")
+            logs.append("   Проверь Serial Console VM для диагностики:")
+            logs.append("   1. Открой VM в консоли Yandex Cloud")
+            logs.append("   2. Перейди в Serial Console")
+            logs.append("   3. Войди: root/root123 или ubuntu/ubuntu123")
+            logs.append("   4. Проверь логи: cat /var/log/postgresql-setup.log")
+            logs.append("   5. Проверь статус: systemctl status postgresql")
+            print("⚠️ PostgreSQL не отвечает после ожидания")
+            print(f"   VM создана: {yandex_vm_id}")
+            print(f"   IP адрес: {ip_address}")
+            print("   Проверь Serial Console VM для диагностики")
+        
+        logs.append("")
+        logs.append("=" * 60)
+        logs.append("✅ VM с PostgreSQL создана!")
+        logs.append("")
+        logs.append(f"📋 Информация:")
+        logs.append(f"   VM ID: {yandex_vm_id}")
+        logs.append(f"   IP адрес: {ip_address}")
+        logs.append(f"   База данных: {db_name}")
+        logs.append(f"   Пользователь: {db_user}")
+        logs.append(f"   Пароль: {db_password}")
+        logs.append("")
+        logs.append(f"🔗 DATABASE_URL:")
+        logs.append(f"   {database_url}")
+        print("=" * 60)
+        print("✅ VM с PostgreSQL создана!")
+        print(f"📋 Информация:")
+        print(f"   VM ID: {yandex_vm_id}")
+        print(f"   IP адрес: {ip_address}")
+        print(f"   База данных: {db_name}")
+        print(f"   Пользователь: {db_user}")
+        print(f"   Пароль: {db_password}")
+        print(f"🔗 DATABASE_URL: {database_url}")
+        logs.append("")
+        logs.append("=" * 60)
+        logs.append("")
+        logs.append("📝 Следующие шаги:")
+        logs.append("   1. Скопируй DATABASE_URL выше")
+        logs.append("   2. Добавь его как переменную DATABASE_URL во все функции деплойера")
+        logs.append("   3. Примени миграции БД через деплойер")
+        logs.append("")
+        
+        return {
+            'statusCode': 200,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({
+                'success': True,
+                'logs': logs,
+                'vm_id': yandex_vm_id,
+                'ip_address': ip_address,
+                'database_url': database_url,
+                'db_name': db_name,
+                'db_user': db_user,
+                'db_password': db_password,
+                'message': 'VM с PostgreSQL создана успешно'
+            }),
+            'isBase64Encoded': False
+        }
+        
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ ERROR: {str(e)}")
+        print(f"Traceback: {error_details}")
+        if 'logs' in locals():
+            for log_line in logs:
+                print(log_line)
+        
+        return {
+            'statusCode': 500,
+            'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+            'body': json.dumps({
+                'error': str(e),
+                'details': error_details,
+                'logs': logs if 'logs' in locals() else []
+            }),
+            'isBase64Encoded': False
+        }
+
+
+def get_folder_id(iam_token):
+    """Получить folder_id из Yandex Cloud"""
+    headers = {'Authorization': f'Bearer {iam_token}'}
+    
+    clouds_resp = requests.get(
+        'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/clouds',
+        headers=headers,
+        timeout=10
+    )
+    
+    if clouds_resp.status_code != 200:
+        raise Exception(f'Failed to get clouds: {clouds_resp.text}')
+    
+    clouds = clouds_resp.json().get('clouds', [])
+    if not clouds:
+        raise Exception('No clouds found')
+    
+    cloud_id = clouds[0]['id']
+    
+    folders_resp = requests.get(
+        f'https://resource-manager.api.cloud.yandex.net/resource-manager/v1/folders?cloudId={cloud_id}',
+        headers=headers,
+        timeout=10
+    )
+    
+    folders = folders_resp.json().get('folders', [])
+    if not folders:
+        raise Exception('No folders found')
+    
+    return folders[0]['id']

@@ -1,0 +1,23 @@
+{
+  "tests": [
+    {
+      "name": "GET all configs returns array",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200
+    },
+    {
+      "name": "POST without required fields returns 400",
+      "method": "POST",
+      "path": "/",
+      "body": {
+        "name": "test"
+      },
+      "expectedStatus": 400,
+      "expectedBody": {
+        "error": "string"
+      },
+      "bodyMatcher": "partial"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "GET all VMs returns array",
+      "method": "GET",
+      "path": "/",
+      "expectedStatus": 200,
+      "expectedBody": [],
+      "bodyMatcher": "type"
+    }
+  ]
+}
