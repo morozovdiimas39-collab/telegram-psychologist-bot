@@ -9,5 +9,6 @@
   "quiz-api": "https://functions.yandexcloud.net/d4ec7f12dgsq8a9hd7kk",
   "migrate": "https://functions.yandexcloud.net/d4eoo7gt252g039lr5bj",
   "deploy-functions": "https://functions.yandexcloud.net/d4e2dmf1ad46p3bna5j7",
-  "deploy": "https://functions.yandexcloud.net/d4e1if7k81ckji3gdrjg" 
+  "deploy": "https://functions.yandexcloud.net/d4e1if7k81ckji3gdrjg",
+  "setup-database": "https://functions.yandexcloud.net/d4e1b7fvqqmku2er9rav"
 }
