@@ -1,14 +1,14 @@
- {
-  "deploy-status": "https://functions.yandexcloud.net/d4ed5ctg0tpgtomj8d2g",
-  "deploy-long": "https://functions.yandexcloud.net/d4ebsj6qg2vmva1f2n87",
-  "yc-sync": "https://functions.yandexcloud.net/d4esl9bbe2cjnqh9i8jc",
-  "vm-setup": "https://functions.yandexcloud.net/d4etobt9vtagacil1bjh",
-  "vm-list": "https://functions.yandexcloud.net/d4e3tqttj8lt3e7l69si",
-  "deploy-config": "https://functions.yandexcloud.net/d4e0o7ne7v2f9nemoipv",
-  "metrika-goals": "https://functions.yandexcloud.net/d4eh38e9uosso0tcsj48",
-  "quiz-api": "https://functions.yandexcloud.net/d4ec7f12dgsq8a9hd7kk",
+{
+  "deploy-status": "https://functions.poehali.dev/7f8ea4f1-fc5e-4965-9c55-1fcdd63e7c69",
+  "deploy-long": "https://functions.poehali.dev/62645364-63f3-4bbf-afd4-f73eeef93252",
+  "yc-sync": "https://functions.poehali.dev/a589b4d4-582a-4a50-bd68-b56b3df132f1",
+  "vm-setup": "https://functions.poehali.dev/d35d3c31-f4d9-4367-8193-9976ed641f46",
+  "vm-list": "https://functions.poehali.dev/c6384df3-0021-4039-b979-dbd20bba7ab2",
+  "deploy-config": "https://functions.poehali.dev/46b95dc8-bbde-4d2c-8d43-2999349ac79e",
+  "metrika-goals": "https://functions.poehali.dev/68e9b314-2779-4c02-a2e7-30c01923111f",
+  "quiz-api": "https://functions.poehali.dev/822872d6-b63d-4b6e-990b-cbd080d3143f",
   "migrate": "https://functions.yandexcloud.net/d4eoo7gt252g039lr5bj",
-  "deploy-functions": "https://functions.yandexcloud.net/d4e2dmf1ad46p3bna5j7",
-  "deploy": "https://functions.yandexcloud.net/d4e1if7k81ckji3gdrjg",
+  "deploy-functions": "https://functions.poehali.dev/bdf0df74-2961-4e8c-88bb-756cfc7c4bc1",
+  "deploy": "https://functions.poehali.dev/aa6cb973-aa73-426a-8148-f1be1cbf3a3b",
   "setup-database": "https://functions.yandexcloud.net/d4e1b7fvqqmku2er9rav"
 }
