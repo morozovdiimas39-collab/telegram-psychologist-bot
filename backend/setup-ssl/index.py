@@ -9,18 +9,32 @@ from psycopg2.extras import RealDictCursor
 import paramiko
 from io import StringIO
 
-CORS_HEADERS = {'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type'}
+CORS_HEADERS = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Access-Control-Max-Age': '86400',
+}
 
 
 def handler(event: dict, context) -> dict:
-    method = event.get('httpMethod', 'POST')
+    method = (event.get('httpMethod') or event.get('requestMethod') or 'POST').upper()
     if method == 'OPTIONS':
         return {'statusCode': 200, 'headers': CORS_HEADERS, 'body': '', 'isBase64Encoded': False}
 
     try:
-        body_str = event.get('body', '{}') or '{}'
-        body = json.loads(body_str) if isinstance(body_str, str) else body_str
-        config_name = body.get('config_name')
+        config_name = None
+        # GET: config_name из query
+        params = event.get('queryStringParameters') or event.get('params') or {}
+        if isinstance(params, dict):
+            config_name = params.get('config_name')
+            if isinstance(config_name, list):
+                config_name = config_name[0] if config_name else None
+        # POST: из body
+        if not config_name:
+            body_str = event.get('body', '{}') or '{}'
+            body = json.loads(body_str) if isinstance(body_str, str) else body_str
+            config_name = body.get('config_name')
 
         if not config_name:
             return {

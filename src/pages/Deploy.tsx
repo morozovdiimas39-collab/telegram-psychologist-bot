@@ -170,10 +170,8 @@ export default function Deploy() {
     }
     setIsSettingUpSsl(configName);
     try {
-      const resp = await fetch(sslUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config_name: configName })
+      const resp = await fetch(`${sslUrl}?config_name=${encodeURIComponent(configName)}`, {
+        method: "GET"
       });
       const data = await resp.json();
       if (data.logs && Array.isArray(data.logs)) {
