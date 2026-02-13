@@ -36,9 +36,11 @@ export default function Migrate() {
     setResult(null);
 
     try {
-      // GET с query params — не вызывает CORS preflight (OPTIONS)
-      const url = `${API_ENDPOINTS.migrate}?github_repo=${encodeURIComponent(githubRepo.trim())}`;
-      const response = await fetch(url, { method: 'GET' });
+      const response = await fetch(API_ENDPOINTS.migrate, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ github_repo: githubRepo.trim() }),
+      });
 
       const data = await response.json();
 
