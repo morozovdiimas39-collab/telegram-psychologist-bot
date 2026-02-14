@@ -527,8 +527,10 @@ export default function Deploy() {
     
     setIsDeletingVm(true);
     try {
-      const resp = await fetch(`${API_ENDPOINTS.vmList}?id=${deleteVmDialog.vm.id}`, {
-        method: 'DELETE',
+      const resp = await fetch(API_ENDPOINTS.vmList, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'delete', id: deleteVmDialog.vm.id }),
       });
       
       let data;
@@ -677,12 +679,13 @@ export default function Deploy() {
     setIsMigrating(config.name);
     setDeployLogs(null);
     try {
-      // GET с query params — не вызывает CORS preflight (OPTIONS)
-      const url = `${MIGRATE_URL}?github_repo=${encodeURIComponent(config.github_repo)}`;
-      const resp = await fetch(url, { method: "GET" });
+      const resp = await fetch(MIGRATE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ github_repo: config.github_repo }),
+      });
 
-      const text = await resp.text();
-      const data = text ? JSON.parse(text) : {};
+      const data = await resp.json().catch(() => ({}));
 
       if (!resp.ok) {
         if (data.logs && Array.isArray(data.logs)) {
