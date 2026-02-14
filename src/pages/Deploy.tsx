@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import Icon from "@/components/ui/icon";
 import { API_ENDPOINTS } from "@/lib/api";
@@ -64,6 +65,8 @@ export default function Deploy() {
   const [isLoadingSshKey, setIsLoadingSshKey] = useState(false);
   const [deleteVmDialog, setDeleteVmDialog] = useState<{ open: boolean; vm: VMInstance | null }>({ open: false, vm: null });
   const [isDeletingVm, setIsDeletingVm] = useState(false);
+  const [addSshKeyDialog, setAddSshKeyDialog] = useState<{ open: boolean; vm: VMInstance | null; keyValue: string }>({ open: false, vm: null, keyValue: '' });
+  const [isSavingSshKey, setIsSavingSshKey] = useState(false);
   const [isSettingUpDatabase, setIsSettingUpDatabase] = useState(false);
   const [databaseSetupResult, setDatabaseSetupResult] = useState<{ database_url: string; db_password: string } | null>(null);
 
@@ -505,8 +508,46 @@ export default function Deploy() {
         description: error.message,
         variant: "destructive"
       });
+      if (error.message?.includes('не найден') || error.message?.includes('SSH')) {
+        setAddSshKeyDialog({ open: true, vm, keyValue: '' });
+      }
     } finally {
       setIsLoadingSshKey(false);
+    }
+  };
+
+  const handleSaveSshKeyToDb = async () => {
+    if (!addSshKeyDialog.vm || !addSshKeyDialog.keyValue.trim()) {
+      toast({ title: "Ошибка", description: "Вставь приватный SSH ключ", variant: "destructive" });
+      return;
+    }
+    const key = addSshKeyDialog.keyValue.trim();
+    if (!key.includes('BEGIN') || !key.includes('END')) {
+      toast({ title: "Ошибка", description: "Ключ должен содержать -----BEGIN----- и -----END-----", variant: "destructive" });
+      return;
+    }
+    setIsSavingSshKey(true);
+    try {
+      let resp = await fetch(API_ENDPOINTS.vmList, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: addSshKeyDialog.vm.id, ssh_private_key: key })
+      });
+      if (resp.status === 405) {
+        resp = await fetch(API_ENDPOINTS.vmList, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action: 'update_ssh_key', id: addSshKeyDialog.vm.id, ssh_private_key: key })
+        });
+      }
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `Ошибка ${resp.status}`);
+      toast({ title: "✅ Ключ сохранён", description: data.message || "SSH ключ сохранён в БД. Деплой теперь должен работать." });
+      setAddSshKeyDialog({ open: false, vm: null, keyValue: '' });
+    } catch (error: any) {
+      toast({ title: "Ошибка", description: error.message, variant: "destructive" });
+    } finally {
+      setIsSavingSshKey(false);
     }
   };
 
@@ -1034,16 +1075,27 @@ export default function Deploy() {
                         <div className={`${statusConfig.color} text-sm`}>{statusConfig.label}</div>
                         <div className="flex items-center gap-2">
                           {vm.ip_address && (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="border-blue-500/50 text-blue-300 hover:bg-blue-950/50"
-                              onClick={() => handleGetSshKey(vm)}
-                              disabled={isLoadingSshKey}
-                            >
-                              <Icon name="Key" className="h-3 w-3 mr-1" />
-                              SSH ключ
-                            </Button>
+                            <>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-blue-500/50 text-blue-300 hover:bg-blue-950/50"
+                                onClick={() => handleGetSshKey(vm)}
+                                disabled={isLoadingSshKey}
+                              >
+                                <Icon name="Key" className="h-3 w-3 mr-1" />
+                                SSH ключ
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="border-amber-500/50 text-amber-300 hover:bg-amber-950/50"
+                                onClick={() => setAddSshKeyDialog({ open: true, vm, keyValue: '' })}
+                              >
+                                <Icon name="Plus" className="h-3 w-3 mr-1" />
+                                Добавить ключ
+                              </Button>
+                            </>
                           )}
                           <Button
                             size="sm"
@@ -1396,6 +1448,48 @@ export default function Deploy() {
                     className="border-slate-600 text-slate-300"
                   >
                     Закрыть
+                  </Button>
+                </div>
+              </div>
+            )}
+          </DialogContent>
+        </Dialog>
+
+        {/* Диалог добавления SSH ключа */}
+        <Dialog open={addSshKeyDialog.open} onOpenChange={(open) => !isSavingSshKey && setAddSshKeyDialog({ open, vm: null, keyValue: '' })}>
+          <DialogContent className="max-w-2xl bg-slate-900 border-slate-700">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <Icon name="Key" className="h-5 w-5 text-amber-400" />
+                Добавить SSH ключ для {addSshKeyDialog.vm?.name}
+              </DialogTitle>
+              <DialogDescription className="text-slate-300">
+                Вставь приватный ключ — он будет сохранён в БД, деплой заработает
+              </DialogDescription>
+            </DialogHeader>
+            {addSshKeyDialog.vm && (
+              <div className="space-y-4">
+                <div>
+                  <Label className="text-slate-300">Приватный SSH ключ</Label>
+                  <Textarea
+                    placeholder="-----BEGIN OPENSSH PRIVATE KEY-----
+...
+-----END OPENSSH PRIVATE KEY-----"
+                    value={addSshKeyDialog.keyValue}
+                    onChange={(e) => setAddSshKeyDialog({ ...addSshKeyDialog, keyValue: e.target.value })}
+                    className="bg-slate-800 border-slate-700 text-white font-mono text-sm min-h-[180px] mt-2"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    onClick={handleSaveSshKeyToDb}
+                    disabled={isSavingSshKey || !addSshKeyDialog.keyValue.trim()}
+                    className="bg-amber-600 hover:bg-amber-700"
+                  >
+                    {isSavingSshKey ? 'Сохранение...' : 'Сохранить в БД'}
+                  </Button>
+                  <Button variant="outline" className="border-slate-600" onClick={() => setAddSshKeyDialog({ open: false, vm: null, keyValue: '' })} disabled={isSavingSshKey}>
+                    Отмена
                   </Button>
                 </div>
               </div>
