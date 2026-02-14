@@ -120,35 +120,13 @@ export default function Deploy() {
   const handleDeploy = async (configName: string) => {
     setIsDeploying(configName);
     try {
-      // Сначала пробуем webhook (без SSH) — для старых VM
-      let resp: Response;
-      let data: any;
-      if (API_ENDPOINTS.deploy) {
-        resp = await fetch(API_ENDPOINTS.deploy, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config_name: configName })
-        });
-        data = await resp.json();
-        // Если webhook не сработал — fallback на deploy-long (SSH) для новых VM
-        if (!resp.ok && API_ENDPOINTS.deployLong) {
-          resp = await fetch(API_ENDPOINTS.deployLong, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ config_name: configName })
-          });
-          data = await resp.json();
-        }
-      } else if (API_ENDPOINTS.deployLong) {
-        resp = await fetch(API_ENDPOINTS.deployLong, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ config_name: configName })
-        });
-        data = await resp.json();
-      } else {
-        throw new Error("Деплой не настроен (нет deploy и deploy-long)");
-      }
+      const resp = await fetch(API_ENDPOINTS.deployLong, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ config_name: configName })
+      });
+
+      const data = await resp.json();
 
       if (!resp.ok) {
         // Показываем подробные логи деплоя, если они есть
@@ -742,11 +720,8 @@ export default function Deploy() {
     setIsMigrating(config.name);
     setDeployLogs(null);
     try {
-      const resp = await fetch(MIGRATE_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_repo: config.github_repo }),
-      });
+      const url = `${MIGRATE_URL}?github_repo=${encodeURIComponent(config.github_repo)}`;
+      const resp = await fetch(url, { method: "GET" });
 
       const data = await resp.json().catch(() => ({}));
 
