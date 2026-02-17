@@ -45,12 +45,12 @@ export default function Deploy() {
   const [configs, setConfigs] = useState<DeployConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeploying, setIsDeploying] = useState<string | null>(null);
-  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "" });
+  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "", github_token: "" });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
-  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0 });
+  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0, github_token: "" });
   const [selectedVmId, setSelectedVmId] = useState<number | null>(null);
   const [isCreateVmDialogOpen, setIsCreateVmDialogOpen] = useState(false);
   const [newVmName, setNewVmName] = useState("");
@@ -346,7 +346,10 @@ export default function Deploy() {
         description: `Теперь можно задеплоить ${newConfig.domain}`
       });
 
-      setNewConfig({ name: '', domain: '', repo: '' });
+      if (newConfig.github_token) {
+        try { localStorage.setItem(`deploy_github_token_${newConfig.name}`, newConfig.github_token); } catch {}
+      }
+      setNewConfig({ name: '', domain: '', repo: '', github_token: '' });
       setSelectedVmId(null);
       setShowNewConfigForm(false);
       loadConfigs();
@@ -413,6 +416,9 @@ export default function Deploy() {
         description: `${configName} успешно изменён`
       });
 
+      if (editConfig.github_token) {
+        try { localStorage.setItem(`deploy_github_token_${editConfig.name}`, editConfig.github_token); } catch {}
+      }
       setEditingConfig(null);
       loadConfigs();
     } catch (error: any) {
@@ -426,11 +432,14 @@ export default function Deploy() {
 
   const startEdit = (config: DeployConfig) => {
     setEditingConfig(config.name);
+    let token = "";
+    try { token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; } catch {}
     setEditConfig({
       name: config.name,
       domain: config.domain,
       repo: config.github_repo,
-      vmId: config.vm_instance_id || 0
+      vmId: config.vm_instance_id || 0,
+      github_token: token
     });
   };
 
@@ -720,8 +729,13 @@ export default function Deploy() {
     setIsMigrating(config.name);
     setDeployLogs(null);
     try {
-      const url = `${MIGRATE_URL}?github_repo=${encodeURIComponent(config.github_repo)}`;
-      const resp = await fetch(url, { method: "GET" });
+      let token = "";
+      try { token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; } catch {}
+      const resp = await fetch(MIGRATE_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ github_repo: config.github_repo, github_token: token })
+      });
 
       const data = await resp.json().catch(() => ({}));
 
@@ -1166,6 +1180,20 @@ export default function Deploy() {
                     </p>
                   </div>
                   <div>
+                    <Label className="text-slate-300">GitHub токен</Label>
+                    <Input
+                      type="password"
+                      value={newConfig.github_token}
+                      onChange={(e) => setNewConfig({...newConfig, github_token: e.target.value})}
+                      placeholder="ghp_... (для миграций и доступа к репо)"
+                      className="bg-slate-800 border-slate-700 text-white"
+                      autoComplete="off"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      Нужен для миграций БД. <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Создать токен</a>
+                    </p>
+                  </div>
+                  <div>
                     <Label className="text-slate-300">Сервер</Label>
                     <select
                       value={selectedVmId || ''}
@@ -1227,6 +1255,18 @@ export default function Deploy() {
                             placeholder="username/repo или https://github.com/username/repo"
                             className="bg-slate-800 border-slate-700 text-white"
                           />
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">GitHub токен</Label>
+                          <Input
+                            type="password"
+                            value={editConfig.github_token}
+                            onChange={(e) => setEditConfig({...editConfig, github_token: e.target.value})}
+                            placeholder="ghp_... (для миграций)"
+                            className="bg-slate-800 border-slate-700 text-white"
+                            autoComplete="off"
+                          />
+                          <p className="text-xs text-slate-400 mt-1">Сохраняется в браузере. Без токена кнопка «Миграции» не сработает для приватных репо.</p>
                         </div>
                         <div>
                           <Label className="text-slate-300">Сервер</Label>
