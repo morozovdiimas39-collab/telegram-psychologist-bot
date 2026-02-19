@@ -20,6 +20,10 @@ CORS_HEADERS = {
 
 def handler(event: dict, context) -> dict:
     try:
+        print("=" * 60)
+        print("🚀 migrate function started")
+        print(f"Event type: {type(event)}")
+        
         if not isinstance(event, dict):
             event = {}
         # Поддержка формата AWS (httpMethod) и Yandex Cloud (requestMethod)
@@ -27,6 +31,8 @@ def handler(event: dict, context) -> dict:
         params = event.get('params')
         if isinstance(params, dict):
             method = params.get('http_method') or method
+
+        print(f"Method: {method}")
 
         if method == 'OPTIONS':
             return {
@@ -88,7 +94,11 @@ def handler(event: dict, context) -> dict:
                 body = {}
             github_repo = body.get('github_repo') or event.get('github_repo')
         
+        print(f"GitHub repo: {github_repo}")
+        print(f"Body keys: {list(body.keys()) if isinstance(body, dict) else 'not a dict'}")
+        
         if not github_repo:
+            print("❌ github_repo не указан")
             return {
                 'statusCode': 400,
                 'headers': {'Content-Type': 'application/json', **CORS_HEADERS},
@@ -96,12 +106,15 @@ def handler(event: dict, context) -> dict:
                 'isBase64Encoded': False
             }
         
-        github_token = os.environ.get('GITHUB_TOKEN')
+        github_token = body.get('github_token') or os.environ.get('GITHUB_TOKEN')
+        print(f"GitHub token present: {bool(github_token)}")
+        
         if not github_token:
+            print("❌ GITHUB_TOKEN не найден ни в body, ни в переменных окружения")
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', **CORS_HEADERS},
-                'body': json.dumps({'error': 'GITHUB_TOKEN не настроен'}),
+                'body': json.dumps({'error': 'GITHUB_TOKEN не настроен (ни в запросе, ни в переменных окружения)'}),
                 'isBase64Encoded': False
             }
         
@@ -117,34 +130,58 @@ def handler(event: dict, context) -> dict:
                     schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
                     conn_config = psycopg2.connect(dsn)
                     cur_config = conn_config.cursor(cursor_factory=RealDictCursor)
-                    cur_config.execute(
-                        f"SELECT database_url FROM {schema}.deploy_configs WHERE name = %s",
-                        (config_name,)
-                    )
-                    config = cur_config.fetchone()
+                    
+                    # Проверяем наличие поля database_url в таблице
+                    try:
+                        cur_config.execute(f"""
+                            SELECT column_name 
+                            FROM information_schema.columns 
+                            WHERE table_schema = %s AND table_name = 'deploy_configs' AND column_name = 'database_url'
+                        """, (schema,))
+                        has_database_url = cur_config.fetchone() is not None
+                    except:
+                        has_database_url = False
+                    
+                    if has_database_url:
+                        cur_config.execute(
+                            f"SELECT database_url FROM {schema}.deploy_configs WHERE name = %s",
+                            (config_name,)
+                        )
+                        config = cur_config.fetchone()
+                        
+                        if config and config.get('database_url') and config['database_url'].strip():
+                            database_url = config['database_url'].strip()
+                            print(f"✅ Использую database_url из конфига {config_name}")
+                    else:
+                        print(f"⚠️ Поле database_url не найдено в таблице deploy_configs, используем DATABASE_URL из переменных окружения")
+                    
                     cur_config.close()
                     conn_config.close()
-                    
-                    if config and config.get('database_url') and config['database_url'].strip():
-                        database_url = config['database_url'].strip()
                 except Exception as e:
                     # Если не удалось получить из конфига, используем fallback
-                    pass
+                    print(f"⚠️ Ошибка получения database_url из конфига {config_name}: {str(e)}")
+                    import traceback
+                    print(traceback.format_exc())
         
         # Fallback на DATABASE_URL из переменных окружения
         if not database_url:
             database_url = os.environ.get('DATABASE_URL')
+            if database_url:
+                print(f"✅ Использую DATABASE_URL из переменных окружения")
         
         if not database_url:
+            error_msg = 'DATABASE_URL не настроен (ни в конфиге, ни в переменных окружения)'
+            print(f"❌ {error_msg}")
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', **CORS_HEADERS},
-                'body': json.dumps({'error': 'DATABASE_URL не настроен (ни в конфиге, ни в переменных окружения)'}),
+                'body': json.dumps({'error': error_msg}),
                 'isBase64Encoded': False
             }
         
         logs = []
         logs.append("🔐 Подключаюсь к GitHub...")
+        print(f"✅ Использую database_url: {database_url[:50]}...")  # Логируем первые 50 символов
         
         headers_gh = {
             'Authorization': f'Bearer {github_token}',
@@ -314,12 +351,24 @@ def handler(event: dict, context) -> dict:
         }
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        error_msg = str(e)
+        print(f"❌ КРИТИЧЕСКАЯ ОШИБКА в migrate: {error_msg}")
+        print(f"Traceback:\n{error_details}")
+        
+        # Добавляем детали ошибки в логи если они есть
+        error_logs = logs if 'logs' in locals() else []
+        error_logs.append(f"❌ КРИТИЧЕСКАЯ ОШИБКА: {error_msg}")
+        error_logs.append(f"Детали: {error_details[:500]}")
+        
         return {
             'statusCode': 500,
             'headers': {'Content-Type': 'application/json', **CORS_HEADERS},
             'body': json.dumps({
-                'error': str(e),
-                'logs': logs if 'logs' in locals() else [str(e)]
+                'error': error_msg,
+                'logs': error_logs,
+                'details': error_details[:1000] if len(error_details) > 1000 else error_details
             }),
             'isBase64Encoded': False
         }

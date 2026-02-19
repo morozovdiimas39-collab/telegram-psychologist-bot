@@ -129,6 +129,14 @@ export default function Deploy() {
         return;
       }
       
+      console.log('Загружено конфигов:', data.length);
+      // Логируем database_vm_id для каждого конфига
+      data.forEach((config: DeployConfig) => {
+        if (config.database_vm_id) {
+          console.log(`Конфиг "${config.name}": database_vm_id = ${config.database_vm_id}, database_url = ${config.database_url ? 'указан' : 'не указан'}`);
+        }
+      });
+      
       setConfigs(data);
     } catch (error: any) {
       console.error('Ошибка загрузки конфигов:', error);
@@ -414,26 +422,38 @@ export default function Deploy() {
 
   const handleEditConfig = async (configName: string) => {
     try {
+      const updateData: any = {
+        old_name: configName,
+        name: editConfig.name,
+        domain: editConfig.domain,
+        github_repo: editConfig.repo,
+        vm_instance_id: editConfig.vmId
+      };
+      
+      // Добавляем database_url и database_vm_id только если они указаны
+      if (editConfig.database_url !== undefined && editConfig.database_url !== null && editConfig.database_url.trim() !== '') {
+        updateData.database_url = editConfig.database_url.trim();
+      }
+      if (editConfig.database_vm_id !== undefined && editConfig.database_vm_id !== null) {
+        updateData.database_vm_id = editConfig.database_vm_id;
+      }
+      
+      console.log('Сохраняю конфиг с данными:', updateData);
+      
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          old_name: configName,
-          name: editConfig.name,
-          domain: editConfig.domain,
-          github_repo: editConfig.repo,
-          vm_instance_id: editConfig.vmId,
-          database_url: editConfig.database_url || null,
-          database_vm_id: editConfig.database_vm_id || null
-        })
+        body: JSON.stringify(updateData)
       });
 
       const data = await resp.json();
 
       if (!resp.ok) {
+        console.error('Ошибка сохранения конфига:', data);
         throw new Error(data.error || "Ошибка обновления");
       }
 
+      console.log('Конфиг успешно сохранён:', data);
       toast({
         title: "✅ Конфиг обновлён!",
         description: `${configName} успешно изменён`
@@ -462,6 +482,11 @@ export default function Deploy() {
     } catch (e) {
       console.error('Ошибка загрузки токена:', e);
     }
+    console.log('Загружаю конфиг для редактирования:', {
+      name: config.name,
+      database_url: config.database_url,
+      database_vm_id: config.database_vm_id
+    });
     setEditConfig({
       name: config.name,
       domain: config.domain,
@@ -1430,11 +1455,13 @@ export default function Deploy() {
                             onChange={(e) => {
                               const vmId = e.target.value ? Number(e.target.value) : null;
                               const selectedVm = vms.find(vm => vm.id === vmId);
+                              console.log('Выбран сервер с БД:', vmId, selectedVm);
                               // Автоматически формируем DATABASE_URL на основе выбранной VM
                               // Пользователь должен будет указать пароль вручную
                               const dbUrl = selectedVm && selectedVm.ip_address 
                                 ? `postgresql://deployer_user:ЗАМЕНИ_НА_ПАРОЛЬ@${selectedVm.ip_address}:5432/deployer`
                                 : '';
+                              console.log('Устанавливаю database_vm_id:', vmId, 'database_url:', dbUrl);
                               setEditConfig({...editConfig, database_vm_id: vmId, database_url: dbUrl});
                             }}
                             className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"

@@ -246,8 +246,14 @@ def handler(event: dict, context) -> dict:
             
             for field in allowed_fields:
                 if field in body:
-                    updates.append(f"{field} = %s")
-                    params.append(body[field])
+                    value = body[field]
+                    # Если значение None или пустая строка для database_url/database_vm_id, устанавливаем NULL
+                    if field in ['database_url', 'database_vm_id'] and (value is None or value == ''):
+                        updates.append(f"{field} = NULL")
+                    else:
+                        updates.append(f"{field} = %s")
+                        params.append(value)
+                    print(f"Обновляю поле {field} = {value}")
             
             if not updates:
                 return {
