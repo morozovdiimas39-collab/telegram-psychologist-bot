@@ -456,7 +456,12 @@ export default function Deploy() {
   const startEdit = (config: DeployConfig) => {
     setEditingConfig(config.name);
     let token = "";
-    try { token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; } catch {}
+    try { 
+      token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; 
+      console.log(`Загружаю токен для конфига "${config.name}":`, token ? 'найден' : 'не найден');
+    } catch (e) {
+      console.error('Ошибка загрузки токена:', e);
+    }
     setEditConfig({
       name: config.name,
       domain: config.domain,
@@ -757,14 +762,33 @@ export default function Deploy() {
       let token = "";
       try { 
         token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; 
+        console.log(`Ищу токен для конфига: ${config.name}, найден:`, token ? 'да' : 'нет');
       } catch (e) {
         console.error('Ошибка чтения токена из localStorage:', e);
+      }
+      
+      // Если токена нет в localStorage, пробуем найти по старому имени или другим вариантам
+      if (!token || token.trim() === "") {
+        // Пробуем найти токен по другим возможным ключам
+        try {
+          const allKeys = Object.keys(localStorage);
+          const tokenKeys = allKeys.filter(key => key.startsWith('deploy_github_token_'));
+          console.log('Все ключи токенов в localStorage:', tokenKeys);
+          
+          // Если есть только один токен, используем его
+          if (tokenKeys.length === 1) {
+            token = localStorage.getItem(tokenKeys[0]) || "";
+            console.log('Использую единственный найденный токен');
+          }
+        } catch (e) {
+          console.error('Ошибка поиска токена:', e);
+        }
       }
       
       if (!token || token.trim() === "") {
         toast({
           title: "⚠️ Нет GitHub токена",
-          description: `Добавь GitHub токен в конфиге "${config.name}" перед применением миграций`,
+          description: `Добавь GitHub токен в конфиге "${config.name}" перед применением миграций. Открой конфиг для редактирования и вставь токен в поле "GitHub токен".`,
           variant: "destructive",
         });
         setIsMigrating(null);
@@ -1362,9 +1386,16 @@ export default function Deploy() {
                               // Сохраняем токен сразу при вводе
                               if (token.trim()) {
                                 try {
-                                  localStorage.setItem(`deploy_github_token_${editConfig.name}`, token);
+                                  const key = `deploy_github_token_${editConfig.name}`;
+                                  localStorage.setItem(key, token);
+                                  console.log(`Токен сохранён в localStorage под ключом: ${key}`);
                                 } catch (e) {
                                   console.error('Ошибка сохранения токена:', e);
+                                  toast({
+                                    title: "Ошибка сохранения токена",
+                                    description: "Не удалось сохранить токен в браузере. Проверь консоль.",
+                                    variant: "destructive"
+                                  });
                                 }
                               }
                             }}
