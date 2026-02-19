@@ -35,6 +35,7 @@ interface DeployConfig {
   github_repo: string;
   vm_instance_id: number | null;
   database_url?: string | null;
+  database_vm_id?: number | null;
   vm_ip?: string;
   created_at: string;
   updated_at: string;
@@ -46,12 +47,12 @@ export default function Deploy() {
   const [configs, setConfigs] = useState<DeployConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeploying, setIsDeploying] = useState<string | null>(null);
-  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "", github_token: "", database_url: "" });
+  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "", github_token: "", database_url: "", database_vm_id: null as number | null });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
-  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0, github_token: "", database_url: "" });
+  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0, github_token: "", database_url: "", database_vm_id: null as number | null });
   const [selectedVmId, setSelectedVmId] = useState<number | null>(null);
   const [isCreateVmDialogOpen, setIsCreateVmDialogOpen] = useState(false);
   const [newVmName, setNewVmName] = useState("");
@@ -97,6 +98,13 @@ export default function Deploy() {
       const resp = await fetch(API_ENDPOINTS.vmList);
       const data = await resp.json();
       
+      // Проверяем что data это массив
+      if (!Array.isArray(data)) {
+        console.error('Ошибка: VM list не является массивом', data);
+        setVms([]);
+        return;
+      }
+      
       // Показываем только актуальные VM (есть в Yandex Cloud)
       setVms(data.filter((vm: VMInstance) => 
         vm.yandex_vm_id && 
@@ -105,6 +113,7 @@ export default function Deploy() {
       ));
     } catch (error: any) {
       console.error('Ошибка загрузки VM:', error);
+      setVms([]);
     }
   };
 
@@ -112,9 +121,18 @@ export default function Deploy() {
     try {
       const resp = await fetch(API_ENDPOINTS.deployConfig);
       const data = await resp.json();
+      
+      // Проверяем что data это массив
+      if (!Array.isArray(data)) {
+        console.error('Ошибка: Configs list не является массивом', data);
+        setConfigs([]);
+        return;
+      }
+      
       setConfigs(data);
     } catch (error: any) {
       console.error('Ошибка загрузки конфигов:', error);
+      setConfigs([]);
     }
   };
 
@@ -333,7 +351,8 @@ export default function Deploy() {
           domain: newConfig.domain,
           github_repo: newConfig.repo,
           vm_instance_id: vmId,
-          database_url: newConfig.database_url || null
+          database_url: newConfig.database_url || null,
+          database_vm_id: newConfig.database_vm_id || null
         })
       });
 
@@ -351,7 +370,7 @@ export default function Deploy() {
       if (newConfig.github_token) {
         try { localStorage.setItem(`deploy_github_token_${newConfig.name}`, newConfig.github_token); } catch {}
       }
-      setNewConfig({ name: '', domain: '', repo: '', github_token: '', database_url: '' });
+      setNewConfig({ name: '', domain: '', repo: '', github_token: '', database_url: '', database_vm_id: null });
       setSelectedVmId(null);
       setShowNewConfigForm(false);
       loadConfigs();
@@ -404,7 +423,8 @@ export default function Deploy() {
           domain: editConfig.domain,
           github_repo: editConfig.repo,
           vm_instance_id: editConfig.vmId,
-          database_url: editConfig.database_url || null
+          database_url: editConfig.database_url || null,
+          database_vm_id: editConfig.database_vm_id || null
         })
       });
 
@@ -443,7 +463,8 @@ export default function Deploy() {
       repo: config.github_repo,
       vmId: config.vm_instance_id || 0,
       github_token: token,
-      database_url: config.database_url || ''
+      database_url: config.database_url || '',
+      database_vm_id: config.database_vm_id || null
     });
   };
 
@@ -1217,15 +1238,42 @@ export default function Deploy() {
                     </select>
                   </div>
                   <div>
-                    <Label className="text-slate-300">База данных (DATABASE_URL)</Label>
+                    <Label className="text-slate-300">Сервер с базой данных</Label>
+                    <select
+                      value={newConfig.database_vm_id || ''}
+                      onChange={(e) => {
+                        const vmId = e.target.value ? Number(e.target.value) : null;
+                        const selectedVm = vms.find(vm => vm.id === vmId);
+                        // Автоматически формируем DATABASE_URL на основе выбранной VM
+                        // Пользователь должен будет указать пароль вручную
+                        const dbUrl = selectedVm && selectedVm.ip_address 
+                          ? `postgresql://deployer_user:ЗАМЕНИ_НА_ПАРОЛЬ@${selectedVm.ip_address}:5432/deployer`
+                          : '';
+                        setNewConfig({...newConfig, database_vm_id: vmId, database_url: dbUrl});
+                      }}
+                      className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
+                    >
+                      <option value="">Не выбран (использовать БД из переменных окружения)</option>
+                      {vms.map(vm => (
+                        <option key={vm.id} value={vm.id}>
+                          {vm.name} ({vm.ip_address || 'создаётся...'})
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-xs text-slate-400 mt-1">
+                      💡 Выбери сервер с БД из списка выше. Если не выбран, миграции будут применяться к БД из переменных окружения функции migrate.
+                    </p>
+                  </div>
+                  <div>
+                    <Label className="text-slate-300">DATABASE_URL (автоматически или вручную)</Label>
                     <Input
                       value={newConfig.database_url}
-                      onChange={(e) => setNewConfig({...newConfig, database_url: e.target.value})}
-                      placeholder="postgresql://user:pass@host:5432/db (опционально)"
+                      onChange={(e) => setNewConfig({...newConfig, database_url: e.target.value, database_vm_id: null})}
+                      placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
                       className="bg-slate-800 border-slate-700 text-white"
                     />
                     <p className="text-xs text-slate-400 mt-1">
-                      💡 Если не указано, миграции будут применяться к БД из переменных окружения функции migrate. Можно указать URL БД из созданной VM с PostgreSQL.
+                      💡 Можно указать вручную или выбрать сервер выше для автоматического заполнения. Не забудь указать правильный пароль БД!
                     </p>
                   </div>
                 </div>
@@ -1304,15 +1352,42 @@ export default function Deploy() {
                           </select>
                         </div>
                         <div>
-                          <Label className="text-slate-300">База данных (DATABASE_URL)</Label>
+                          <Label className="text-slate-300">Сервер с базой данных</Label>
+                          <select
+                            value={editConfig.database_vm_id || ''}
+                            onChange={(e) => {
+                              const vmId = e.target.value ? Number(e.target.value) : null;
+                              const selectedVm = vms.find(vm => vm.id === vmId);
+                              // Автоматически формируем DATABASE_URL на основе выбранной VM
+                              // Пользователь должен будет указать пароль вручную
+                              const dbUrl = selectedVm && selectedVm.ip_address 
+                                ? `postgresql://deployer_user:ЗАМЕНИ_НА_ПАРОЛЬ@${selectedVm.ip_address}:5432/deployer`
+                                : '';
+                              setEditConfig({...editConfig, database_vm_id: vmId, database_url: dbUrl});
+                            }}
+                            className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
+                          >
+                            <option value="">Не выбран (использовать БД из переменных окружения)</option>
+                            {vms.map(vm => (
+                              <option key={vm.id} value={vm.id}>
+                                {vm.name} ({vm.ip_address || 'создаётся...'})
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-xs text-slate-400 mt-1">
+                            💡 Выбери сервер с БД из списка выше. Если не выбран, миграции будут применяться к БД из переменных окружения функции migrate.
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">DATABASE_URL (автоматически или вручную)</Label>
                           <Input
                             value={editConfig.database_url}
-                            onChange={(e) => setEditConfig({...editConfig, database_url: e.target.value})}
-                            placeholder="postgresql://user:pass@host:5432/db (опционально)"
+                            onChange={(e) => setEditConfig({...editConfig, database_url: e.target.value, database_vm_id: null})}
+                            placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
                             className="bg-slate-800 border-slate-700 text-white"
                           />
                           <p className="text-xs text-slate-400 mt-1">
-                            💡 Если не указано, миграции будут применяться к БД из переменных окружения функции migrate. Можно указать URL БД из созданной VM с PostgreSQL.
+                            💡 Можно указать вручную или выбрать сервер выше для автоматического заполнения. Не забудь указать правильный пароль БД!
                           </p>
                         </div>
                         <div className="flex flex-wrap gap-2">

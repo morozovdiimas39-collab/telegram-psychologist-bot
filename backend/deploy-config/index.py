@@ -32,9 +32,33 @@ def handler(event: dict, context) -> dict:
             query_params = event.get('queryStringParameters') or {}
             name = query_params.get('name')
             
+            # Проверяем наличие новых полей в БД
+            try:
+                cur.execute(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = %s AND table_name = 'deploy_configs' 
+                    AND column_name IN ('database_url', 'database_vm_id')
+                """, (schema,))
+                existing_columns = {row['column_name'] for row in cur.fetchall()}
+                has_database_url = 'database_url' in existing_columns
+                has_database_vm_id = 'database_vm_id' in existing_columns
+            except:
+                has_database_url = False
+                has_database_vm_id = False
+            
+            # Формируем список полей для SELECT
+            base_fields = ['id', 'name', 'domain', 'github_repo', 'vm_instance_id', 'created_at', 'updated_at']
+            if has_database_url:
+                base_fields.append('database_url')
+            if has_database_vm_id:
+                base_fields.append('database_vm_id')
+            
+            fields_str = ', '.join(base_fields)
+            
             if name:
                 cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at FROM {schema}.deploy_configs WHERE name = %s",
+                    f"SELECT {fields_str} FROM {schema}.deploy_configs WHERE name = %s",
                     (name,)
                 )
                 config = cur.fetchone()
@@ -47,22 +71,38 @@ def handler(event: dict, context) -> dict:
                         'isBase64Encoded': False
                     }
                 
-                return {
-                    'statusCode': 200,
-                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                    'body': json.dumps(dict(config), default=str),
-                    'isBase64Encoded': False
-                }
-            else:
-                cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at FROM {schema}.deploy_configs ORDER BY created_at DESC"
-                )
-                configs = cur.fetchall()
+                config_dict = dict(config)
+                # Если поля отсутствуют, добавляем null
+                if not has_database_url:
+                    config_dict['database_url'] = None
+                if not has_database_vm_id:
+                    config_dict['database_vm_id'] = None
                 
                 return {
                     'statusCode': 200,
                     'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                    'body': json.dumps([dict(c) for c in configs], default=str),
+                    'body': json.dumps(config_dict, default=str),
+                    'isBase64Encoded': False
+                }
+            else:
+                cur.execute(
+                    f"SELECT {fields_str} FROM {schema}.deploy_configs ORDER BY created_at DESC"
+                )
+                configs = cur.fetchall()
+                
+                configs_list = [dict(c) for c in configs]
+                # Если поля отсутствуют, добавляем null для каждого конфига
+                if not has_database_url or not has_database_vm_id:
+                    for config in configs_list:
+                        if not has_database_url:
+                            config['database_url'] = None
+                        if not has_database_vm_id:
+                            config['database_vm_id'] = None
+                
+                return {
+                    'statusCode': 200,
+                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                    'body': json.dumps(configs_list, default=str),
                     'isBase64Encoded': False
                 }
         
@@ -81,29 +121,83 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
-            cur.execute(
-                f"""
-                INSERT INTO {schema}.deploy_configs 
-                (name, domain, github_repo, vm_instance_id, database_url)
-                VALUES (%s, %s, %s, %s, %s)
-                RETURNING id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at
-                """,
-                (
-                    body['name'],
-                    body['domain'],
-                    body['github_repo'],
-                    body['vm_instance_id'],
-                    body.get('database_url')  # Опционально
+            # Проверяем наличие новых полей в БД
+            try:
+                cur.execute(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = %s AND table_name = 'deploy_configs' 
+                    AND column_name IN ('database_url', 'database_vm_id')
+                """, (schema,))
+                existing_columns = {row['column_name'] for row in cur.fetchall()}
+                has_database_url = 'database_url' in existing_columns
+                has_database_vm_id = 'database_vm_id' in existing_columns
+            except:
+                has_database_url = False
+                has_database_vm_id = False
+            
+            if has_database_url and has_database_vm_id:
+                cur.execute(
+                    f"""
+                    INSERT INTO {schema}.deploy_configs 
+                    (name, domain, github_repo, vm_instance_id, database_url, database_vm_id)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, name, domain, github_repo, vm_instance_id, database_url, database_vm_id, created_at, updated_at
+                    """,
+                    (
+                        body['name'],
+                        body['domain'],
+                        body['github_repo'],
+                        body['vm_instance_id'],
+                        body.get('database_url'),  # Опционально
+                        body.get('database_vm_id')  # Опционально
+                    )
                 )
-            )
+            elif has_database_url:
+                cur.execute(
+                    f"""
+                    INSERT INTO {schema}.deploy_configs 
+                    (name, domain, github_repo, vm_instance_id, database_url)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at
+                    """,
+                    (
+                        body['name'],
+                        body['domain'],
+                        body['github_repo'],
+                        body['vm_instance_id'],
+                        body.get('database_url')  # Опционально
+                    )
+                )
+            else:
+                cur.execute(
+                    f"""
+                    INSERT INTO {schema}.deploy_configs 
+                    (name, domain, github_repo, vm_instance_id)
+                    VALUES (%s, %s, %s, %s)
+                    RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
+                    """,
+                    (
+                        body['name'],
+                        body['domain'],
+                        body['github_repo'],
+                        body['vm_instance_id']
+                    )
+                )
             
             config = cur.fetchone()
             conn.commit()
             
+            config_dict = dict(config)
+            if not has_database_url:
+                config_dict['database_url'] = None
+            if not has_database_vm_id:
+                config_dict['database_vm_id'] = None
+            
             return {
                 'statusCode': 201,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps(dict(config), default=str),
+                'body': json.dumps(config_dict, default=str),
                 'isBase64Encoded': False
             }
         
@@ -121,6 +215,21 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
+            # Проверяем наличие новых полей в БД
+            try:
+                cur.execute(f"""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_schema = %s AND table_name = 'deploy_configs' 
+                    AND column_name IN ('database_url', 'database_vm_id')
+                """, (schema,))
+                existing_columns = {row['column_name'] for row in cur.fetchall()}
+                has_database_url = 'database_url' in existing_columns
+                has_database_vm_id = 'database_vm_id' in existing_columns
+            except:
+                has_database_url = False
+                has_database_vm_id = False
+            
             # Строим SET часть запроса
             updates = []
             params = []
@@ -129,7 +238,13 @@ def handler(event: dict, context) -> dict:
                 updates.append("name = %s")
                 params.append(new_name)
             
-            for field in ['domain', 'github_repo', 'vm_instance_id', 'database_url']:
+            allowed_fields = ['domain', 'github_repo', 'vm_instance_id']
+            if has_database_url:
+                allowed_fields.append('database_url')
+            if has_database_vm_id:
+                allowed_fields.append('database_vm_id')
+            
+            for field in allowed_fields:
                 if field in body:
                     updates.append(f"{field} = %s")
                     params.append(body[field])
@@ -145,12 +260,22 @@ def handler(event: dict, context) -> dict:
             updates.append("updated_at = CURRENT_TIMESTAMP")
             params.append(old_name)
             
+            # Формируем список полей для RETURNING
+            base_return_fields = ['id', 'name', 'domain', 'github_repo', 'vm_instance_id', 'created_at', 'updated_at']
+            if has_database_url:
+                base_return_fields.append('database_url')
+            if has_database_vm_id:
+                base_return_fields.append('database_vm_id')
+            return_fields = base_return_fields
+            
+            return_fields_str = ', '.join(return_fields)
+            
             cur.execute(
                 f"""
                 UPDATE {schema}.deploy_configs 
                 SET {', '.join(updates)}
                 WHERE name = %s
-                RETURNING id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at
+                RETURNING {return_fields_str}
                 """,
                 params
             )
@@ -166,10 +291,16 @@ def handler(event: dict, context) -> dict:
                     'isBase64Encoded': False
                 }
             
+            config_dict = dict(config)
+            if not has_database_url:
+                config_dict['database_url'] = None
+            if not has_database_vm_id:
+                config_dict['database_vm_id'] = None
+            
             return {
                 'statusCode': 200,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                'body': json.dumps(dict(config), default=str),
+                'body': json.dumps(config_dict, default=str),
                 'isBase64Encoded': False
             }
         
