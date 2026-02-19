@@ -352,16 +352,17 @@ export default function Deploy() {
 
     try {
       // Формируем данные для сохранения - всегда передаём все поля
+      // ВСЕГДА передаём все поля, как для обычного сервера
       const createData = {
         name: newConfig.name,
         domain: newConfig.domain,
         github_repo: newConfig.repo,
-        vm_instance_id: vmId,
-        database_url: newConfig.database_url && newConfig.database_url.trim() ? newConfig.database_url.trim() : null,
+        vm_instance_id: vmId || null,
+        database_url: newConfig.database_url?.trim() || null,
         database_vm_id: newConfig.database_vm_id || null
       };
       
-      console.log('Создаю конфиг с данными:', createData);
+      console.log('🔵 Создаю конфиг с данными:', JSON.stringify(createData, null, 2));
       
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "POST",
@@ -427,20 +428,18 @@ export default function Deploy() {
 
   const handleEditConfig = async (configName: string) => {
     try {
-      // Формируем данные для сохранения - всегда передаём все поля как для обычного сервера
-      const updateData: any = {
+      // Формируем данные для сохранения - ВСЕГДА передаём все поля, как для обычного сервера
+      const updateData = {
         old_name: configName,
         name: editConfig.name,
         domain: editConfig.domain,
         github_repo: editConfig.repo,
-        vm_instance_id: editConfig.vmId || null
+        vm_instance_id: editConfig.vmId || null,
+        database_url: editConfig.database_url?.trim() || null,
+        database_vm_id: editConfig.database_vm_id || null
       };
       
-      // Добавляем database_url и database_vm_id - всегда передаём, даже если null
-      updateData.database_url = editConfig.database_url && editConfig.database_url.trim() ? editConfig.database_url.trim() : null;
-      updateData.database_vm_id = editConfig.database_vm_id || null;
-      
-      console.log('Сохраняю конфиг с данными:', updateData);
+      console.log('Сохраняю конфиг с данными:', JSON.stringify(updateData, null, 2));
       
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "PUT",
@@ -484,10 +483,11 @@ export default function Deploy() {
     } catch (e) {
       console.error('Ошибка загрузки токена:', e);
     }
-    console.log('Загружаю конфиг для редактирования:', {
+    console.log('🔵 Загружаю конфиг для редактирования:', {
       name: config.name,
       database_url: config.database_url,
-      database_vm_id: config.database_vm_id
+      database_vm_id: config.database_vm_id,
+      vm_instance_id: config.vm_instance_id
     });
     setEditConfig({
       name: config.name,
@@ -496,7 +496,7 @@ export default function Deploy() {
       vmId: config.vm_instance_id || 0,
       github_token: token,
       database_url: config.database_url || '',
-      database_vm_id: config.database_vm_id || null
+      database_vm_id: config.database_vm_id || 0
     });
   };
 
@@ -1320,7 +1320,7 @@ export default function Deploy() {
                     <select
                       value={newConfig.database_vm_id || ''}
                       onChange={(e) => {
-                        const vmId = e.target.value ? Number(e.target.value) : null;
+                        const vmId = Number(e.target.value) || 0;
                         const selectedVm = vms.find(vm => vm.id === vmId);
                         // Автоматически формируем DATABASE_URL на основе выбранной VM
                         // Пользователь должен будет указать пароль вручную
@@ -1344,15 +1344,16 @@ export default function Deploy() {
                   </div>
                   <div>
                     <Label className="text-slate-300">DATABASE_URL (автоматически или вручную)</Label>
-                    <Input
-                      value={newConfig.database_url}
-                      onChange={(e) => {
-                        // При ручном изменении database_url НЕ сбрасываем database_vm_id
-                        setNewConfig({...newConfig, database_url: e.target.value});
-                      }}
-                      placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
-                      className="bg-slate-800 border-slate-700 text-white"
-                    />
+                      <Input
+                        value={newConfig.database_url || ''}
+                        onChange={(e) => {
+                          // При ручном изменении database_url НЕ сбрасываем database_vm_id
+                          console.log('🔵 Ручное изменение database_url:', e.target.value);
+                          setNewConfig({...newConfig, database_url: e.target.value});
+                        }}
+                        placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
+                        className="bg-slate-800 border-slate-700 text-white"
+                      />
                     <p className="text-xs text-slate-400 mt-1">
                       💡 Можно указать вручную или выбрать сервер выше для автоматического заполнения. Не забудь указать правильный пароль БД!
                     </p>
@@ -1458,15 +1459,13 @@ export default function Deploy() {
                           <select
                             value={editConfig.database_vm_id || ''}
                             onChange={(e) => {
-                              const vmId = e.target.value ? Number(e.target.value) : null;
+                              const vmId = Number(e.target.value) || 0;
                               const selectedVm = vms.find(vm => vm.id === vmId);
-                              console.log('Выбран сервер с БД:', vmId, selectedVm);
                               // Автоматически формируем DATABASE_URL на основе выбранной VM
                               // Пользователь должен будет указать пароль вручную
                               const dbUrl = selectedVm && selectedVm.ip_address 
                                 ? `postgresql://deployer_user:ЗАМЕНИ_НА_ПАРОЛЬ@${selectedVm.ip_address}:5432/deployer`
                                 : '';
-                              console.log('Устанавливаю database_vm_id:', vmId, 'database_url:', dbUrl);
                               setEditConfig({...editConfig, database_vm_id: vmId, database_url: dbUrl});
                             }}
                             className="w-full bg-slate-800 border border-slate-700 text-white rounded-md px-3 py-2"
