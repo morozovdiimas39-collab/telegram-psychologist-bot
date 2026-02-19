@@ -252,27 +252,14 @@ def handler(event: dict, context) -> dict:
             for field in allowed_fields:
                 if field in body:
                     value = body[field]
-                    # Обрабатываем NULL значения
-                    # ВАЖНО: для числовых полей (database_vm_id, vm_instance_id) проверяем только None
-                    # Для строковых полей проверяем также пустые строки
-                    if field in ['database_vm_id', 'vm_instance_id']:
-                        # Для числовых полей: None или 0 означает NULL в БД
-                        if value is None or value == 0:
-                            updates.append(f"{field} = NULL")
-                            print(f"✅ Обновляю поле {field} = NULL (было: {value})")
-                        else:
-                            updates.append(f"{field} = %s")
-                            params.append(value)
-                            print(f"✅ Обновляю поле {field} = {value}")
+                    # Обрабатываем NULL значения: None или пустая строка = NULL
+                    if value is None or value == '' or (isinstance(value, str) and value.strip() == ''):
+                        updates.append(f"{field} = NULL")
+                        print(f"✅ Обновляю поле {field} = NULL")
                     else:
-                        # Для строковых полей: None или пустая строка = NULL
-                        if value is None or value == '' or (isinstance(value, str) and value.strip() == ''):
-                            updates.append(f"{field} = NULL")
-                            print(f"✅ Обновляю поле {field} = NULL")
-                        else:
-                            updates.append(f"{field} = %s")
-                            params.append(value)
-                            print(f"✅ Обновляю поле {field} = {value}")
+                        updates.append(f"{field} = %s")
+                        params.append(value)
+                        print(f"✅ Обновляю поле {field} = {value}")
                 else:
                     print(f"⚠️ Поле {field} отсутствует в body, пропускаю")
             
