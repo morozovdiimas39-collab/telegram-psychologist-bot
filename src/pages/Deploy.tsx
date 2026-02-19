@@ -362,7 +362,7 @@ export default function Deploy() {
         database_vm_id: newConfig.database_vm_id || null
       };
       
-      console.log('🔵 Создаю конфиг с данными:', JSON.stringify(createData, null, 2));
+      console.log('🔴 Создаю конфиг:', JSON.stringify(createData, null, 2));
       
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "POST",
@@ -429,15 +429,18 @@ export default function Deploy() {
   const handleEditConfig = async (configName: string) => {
     try {
       // Формируем данные для сохранения - ВСЕГДА передаём все поля, как для обычного сервера
-      const updateData = {
+      const updateData: any = {
         old_name: configName,
         name: editConfig.name,
         domain: editConfig.domain,
         github_repo: editConfig.repo,
         vm_instance_id: editConfig.vmId || null,
         database_url: editConfig.database_url?.trim() || null,
+        // Передаём database_vm_id как есть: если 0 или null, бэкенд установит NULL
         database_vm_id: editConfig.database_vm_id || null
       };
+      
+      console.log('🔴 Сохраняю конфиг:', JSON.stringify(updateData, null, 2));
       
       console.log('Сохраняю конфиг с данными:', JSON.stringify(updateData, null, 2));
       

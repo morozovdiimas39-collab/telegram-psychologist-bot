@@ -256,10 +256,10 @@ def handler(event: dict, context) -> dict:
                     # ВАЖНО: для числовых полей (database_vm_id, vm_instance_id) проверяем только None
                     # Для строковых полей проверяем также пустые строки
                     if field in ['database_vm_id', 'vm_instance_id']:
-                        # Для числовых полей: только None означает NULL, 0 - валидное значение
-                        if value is None:
+                        # Для числовых полей: None или 0 означает NULL в БД
+                        if value is None or value == 0:
                             updates.append(f"{field} = NULL")
-                            print(f"✅ Обновляю поле {field} = NULL")
+                            print(f"✅ Обновляю поле {field} = NULL (было: {value})")
                         else:
                             updates.append(f"{field} = %s")
                             params.append(value)
