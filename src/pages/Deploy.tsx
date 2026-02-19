@@ -351,17 +351,22 @@ export default function Deploy() {
     const vmId = selectedVmId || vms[0].id;
 
     try {
+      // Формируем данные для сохранения - всегда передаём все поля
+      const createData = {
+        name: newConfig.name,
+        domain: newConfig.domain,
+        github_repo: newConfig.repo,
+        vm_instance_id: vmId,
+        database_url: newConfig.database_url && newConfig.database_url.trim() ? newConfig.database_url.trim() : null,
+        database_vm_id: newConfig.database_vm_id || null
+      };
+      
+      console.log('Создаю конфиг с данными:', createData);
+      
       const resp = await fetch(API_ENDPOINTS.deployConfig, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newConfig.name,
-          domain: newConfig.domain,
-          github_repo: newConfig.repo,
-          vm_instance_id: vmId,
-          database_url: newConfig.database_url || null,
-          database_vm_id: newConfig.database_vm_id || null
-        })
+        body: JSON.stringify(createData)
       });
 
       const data = await resp.json();
@@ -422,21 +427,18 @@ export default function Deploy() {
 
   const handleEditConfig = async (configName: string) => {
     try {
+      // Формируем данные для сохранения - всегда передаём все поля как для обычного сервера
       const updateData: any = {
         old_name: configName,
         name: editConfig.name,
         domain: editConfig.domain,
         github_repo: editConfig.repo,
-        vm_instance_id: editConfig.vmId
+        vm_instance_id: editConfig.vmId || null
       };
       
-      // Добавляем database_url и database_vm_id только если они указаны
-      if (editConfig.database_url !== undefined && editConfig.database_url !== null && editConfig.database_url.trim() !== '') {
-        updateData.database_url = editConfig.database_url.trim();
-      }
-      if (editConfig.database_vm_id !== undefined && editConfig.database_vm_id !== null) {
-        updateData.database_vm_id = editConfig.database_vm_id;
-      }
+      // Добавляем database_url и database_vm_id - всегда передаём, даже если null
+      updateData.database_url = editConfig.database_url && editConfig.database_url.trim() ? editConfig.database_url.trim() : null;
+      updateData.database_vm_id = editConfig.database_vm_id || null;
       
       console.log('Сохраняю конфиг с данными:', updateData);
       
@@ -1344,7 +1346,10 @@ export default function Deploy() {
                     <Label className="text-slate-300">DATABASE_URL (автоматически или вручную)</Label>
                     <Input
                       value={newConfig.database_url}
-                      onChange={(e) => setNewConfig({...newConfig, database_url: e.target.value, database_vm_id: null})}
+                      onChange={(e) => {
+                        // При ручном изменении database_url НЕ сбрасываем database_vm_id
+                        setNewConfig({...newConfig, database_url: e.target.value});
+                      }}
                       placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
                       className="bg-slate-800 border-slate-700 text-white"
                     />
@@ -1481,7 +1486,11 @@ export default function Deploy() {
                           <Label className="text-slate-300">DATABASE_URL (автоматически или вручную)</Label>
                           <Input
                             value={editConfig.database_url}
-                            onChange={(e) => setEditConfig({...editConfig, database_url: e.target.value, database_vm_id: null})}
+                            onChange={(e) => {
+                              // При ручном изменении database_url НЕ сбрасываем database_vm_id
+                              // чтобы сохранить связь с выбранным сервером
+                              setEditConfig({...editConfig, database_url: e.target.value});
+                            }}
                             placeholder="postgresql://user:pass@host:5432/db (заполнится автоматически при выборе сервера выше)"
                             className="bg-slate-800 border-slate-700 text-white"
                           />
