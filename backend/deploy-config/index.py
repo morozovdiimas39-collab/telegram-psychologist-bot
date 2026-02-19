@@ -137,10 +137,6 @@ def handler(event: dict, context) -> dict:
                 has_database_vm_id = False
             
             if has_database_url and has_database_vm_id:
-                # ВСЕГДА передаём database_url и database_vm_id, даже если None
-                db_url = body.get('database_url')
-                db_vm_id = body.get('database_vm_id')
-                print(f"✅ Создаю конфиг с database_url={db_url}, database_vm_id={db_vm_id}")
                 cur.execute(
                     f"""
                     INSERT INTO {schema}.deploy_configs 
@@ -152,9 +148,9 @@ def handler(event: dict, context) -> dict:
                         body['name'],
                         body['domain'],
                         body['github_repo'],
-                        body.get('vm_instance_id'),  # Может быть None
-                        db_url if db_url else None,  # Явно None если пусто
-                        db_vm_id if db_vm_id else None  # Явно None если пусто
+                        body.get('vm_instance_id'),
+                        body.get('database_url'),
+                        body.get('database_vm_id')
                     )
                 )
             elif has_database_url:
@@ -248,20 +244,14 @@ def handler(event: dict, context) -> dict:
             if has_database_vm_id:
                 allowed_fields.append('database_vm_id')
             
-            # ВСЕГДА обновляем все поля из allowed_fields, если они есть в body
             for field in allowed_fields:
                 if field in body:
                     value = body[field]
-                    # Обрабатываем NULL значения: None или пустая строка = NULL
                     if value is None or value == '' or (isinstance(value, str) and value.strip() == ''):
                         updates.append(f"{field} = NULL")
-                        print(f"✅ Обновляю поле {field} = NULL")
                     else:
                         updates.append(f"{field} = %s")
                         params.append(value)
-                        print(f"✅ Обновляю поле {field} = {value}")
-                else:
-                    print(f"⚠️ Поле {field} отсутствует в body, пропускаю")
             
             if not updates:
                 return {
