@@ -755,13 +755,28 @@ export default function Deploy() {
     setDeployLogs(null);
     try {
       let token = "";
-      try { token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; } catch {}
+      try { 
+        token = localStorage.getItem(`deploy_github_token_${config.name}`) || ""; 
+      } catch (e) {
+        console.error('Ошибка чтения токена из localStorage:', e);
+      }
+      
+      if (!token || token.trim() === "") {
+        toast({
+          title: "⚠️ Нет GitHub токена",
+          description: `Добавь GitHub токен в конфиге "${config.name}" перед применением миграций`,
+          variant: "destructive",
+        });
+        setIsMigrating(null);
+        return;
+      }
+      
       const resp = await fetch(MIGRATE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ 
           github_repo: config.github_repo, 
-          github_token: token,
+          github_token: token.trim(),
           config_name: config.name  // Передаём config_name для получения database_url из конфига
         })
       });
@@ -1213,13 +1228,25 @@ export default function Deploy() {
                     <Input
                       type="password"
                       value={newConfig.github_token}
-                      onChange={(e) => setNewConfig({...newConfig, github_token: e.target.value})}
+                      onChange={(e) => {
+                        const token = e.target.value;
+                        setNewConfig({...newConfig, github_token: token});
+                        // Сохраняем токен сразу при вводе (если имя конфига уже указано)
+                        if (token.trim() && newConfig.name) {
+                          try {
+                            localStorage.setItem(`deploy_github_token_${newConfig.name}`, token);
+                          } catch (e) {
+                            console.error('Ошибка сохранения токена:', e);
+                          }
+                        }
+                      }}
                       placeholder="ghp_... (для миграций и доступа к репо)"
                       className="bg-slate-800 border-slate-700 text-white"
                       autoComplete="off"
                     />
                     <p className="text-xs text-slate-400 mt-1">
                       Нужен для миграций БД. <a href="https://github.com/settings/tokens" target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:underline">Создать токен</a>
+                      {newConfig.github_token ? ' ✅ Токен будет сохранён' : ''}
                     </p>
                   </div>
                   <div>
@@ -1329,12 +1356,26 @@ export default function Deploy() {
                           <Input
                             type="password"
                             value={editConfig.github_token}
-                            onChange={(e) => setEditConfig({...editConfig, github_token: e.target.value})}
+                            onChange={(e) => {
+                              const token = e.target.value;
+                              setEditConfig({...editConfig, github_token: token});
+                              // Сохраняем токен сразу при вводе
+                              if (token.trim()) {
+                                try {
+                                  localStorage.setItem(`deploy_github_token_${editConfig.name}`, token);
+                                } catch (e) {
+                                  console.error('Ошибка сохранения токена:', e);
+                                }
+                              }
+                            }}
                             placeholder="ghp_... (для миграций)"
                             className="bg-slate-800 border-slate-700 text-white"
                             autoComplete="off"
                           />
-                          <p className="text-xs text-slate-400 mt-1">Сохраняется в браузере. Без токена кнопка «Миграции» не сработает для приватных репо.</p>
+                          <p className="text-xs text-slate-400 mt-1">
+                            Сохраняется в браузере автоматически. Без токена кнопка «Миграции» не сработает.
+                            {editConfig.github_token ? ' ✅ Токен сохранён' : ' ⚠️ Введи токен'}
+                          </p>
                         </div>
                         <div>
                           <Label className="text-slate-300">Сервер</Label>
