@@ -648,11 +648,62 @@ runcmd:
             raise Exception('Failed to get VM IP address')
         
         logs.append(f"✅ IP адрес получен: {ip_address}")
+        print(f"✅ IP адрес получен: {ip_address}")
+        
+        # Сохраняем VM в БД с SSH ключом (как для обычных VM)
+        logs.append("💾 Сохраняю информацию о VM в БД...")
+        print("💾 Сохраняю информацию о VM в БД...")
+        
+        db_conn = psycopg2.connect(dsn)
+        db_cur = db_conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Проверяем, не существует ли уже VM с таким именем
+        db_cur.execute(
+            f"SELECT id FROM {schema}.vm_instances WHERE name = %s",
+            (vm_name,)
+        )
+        existing_vm = db_cur.fetchone()
+        
+        if existing_vm:
+            # Обновляем существующую запись
+            db_cur.execute(
+                f"""
+                UPDATE {schema}.vm_instances 
+                SET ip_address = %s, ssh_user = %s, ssh_private_key = %s, 
+                    yandex_vm_id = %s, status = %s
+                WHERE id = %s
+                RETURNING id
+                """,
+                (ip_address, 'ubuntu', private_pem, yandex_vm_id, 'initializing', existing_vm['id'])
+            )
+            vm_db_id = db_cur.fetchone()['id']
+            logs.append(f"   Обновлена существующая запись VM в БД (id: {vm_db_id})")
+            print(f"   Обновлена существующая запись VM в БД (id: {vm_db_id})")
+        else:
+            # Создаём новую запись
+            db_cur.execute(
+                f"""
+                INSERT INTO {schema}.vm_instances 
+                (name, ip_address, ssh_user, ssh_private_key, yandex_vm_id, status)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id
+                """,
+                (vm_name, ip_address, 'ubuntu', private_pem, yandex_vm_id, 'initializing')
+            )
+            vm_db_id = db_cur.fetchone()['id']
+            logs.append(f"   Сохранена новая запись VM в БД (id: {vm_db_id})")
+            print(f"   Сохранена новая запись VM в БД (id: {vm_db_id})")
+        
+        db_conn.commit()
+        db_cur.close()
+        db_conn.close()
+        
+        logs.append("✅ VM сохранена в БД, SSH ключ доступен")
         logs.append("")
         logs.append("⏳ Жду готовности PostgreSQL (это займёт 3-5 минут)...")
         logs.append("   ⚠️ Установка PostgreSQL на VM может занять время")
         logs.append("   Проверь Serial Console VM для деталей установки")
-        print(f"✅ IP адрес получен: {ip_address}")
+        print("✅ VM сохранена в БД, SSH ключ доступен")
         print("⏳ Жду готовности PostgreSQL (это займёт 3-5 минут)...")
         print("   ⚠️ Установка PostgreSQL на VM может занять время")
         print("   Проверь Serial Console VM для деталей установки")
@@ -691,6 +742,24 @@ runcmd:
                 logs.append(f"✅ Подключение успешно! (попытка {attempt + 1}/{max_attempts})")
                 print(f"✅ PostgreSQL готов! Версия: {version[0][:50]}...")
                 print(f"✅ Подключение успешно! (попытка {attempt + 1}/{max_attempts})")
+                
+                # Обновляем статус VM в БД на 'running'
+                try:
+                    db_conn = psycopg2.connect(dsn)
+                    db_cur = db_conn.cursor(cursor_factory=RealDictCursor)
+                    db_cur.execute(
+                        f"UPDATE {schema}.vm_instances SET status = %s WHERE id = %s",
+                        ('running', vm_db_id)
+                    )
+                    db_conn.commit()
+                    db_cur.close()
+                    db_conn.close()
+                    logs.append("✅ Статус VM обновлён на 'running'")
+                    print("✅ Статус VM обновлён на 'running'")
+                except Exception as e:
+                    logs.append(f"⚠️ Не удалось обновить статус VM: {str(e)}")
+                    print(f"⚠️ Не удалось обновить статус VM: {str(e)}")
+                
                 break
             except psycopg2.OperationalError as e:
                 error_msg = str(e)
@@ -724,6 +793,24 @@ runcmd:
             print(f"   VM создана: {yandex_vm_id}")
             print(f"   IP адрес: {ip_address}")
             print("   Проверь Serial Console VM для диагностики")
+            
+            # Обновляем статус VM в БД на 'postgres_pending' если VM была сохранена
+            if 'vm_db_id' in locals():
+                try:
+                    db_conn = psycopg2.connect(dsn)
+                    db_cur = db_conn.cursor(cursor_factory=RealDictCursor)
+                    db_cur.execute(
+                        f"UPDATE {schema}.vm_instances SET status = %s WHERE id = %s",
+                        ('postgres_pending', vm_db_id)
+                    )
+                    db_conn.commit()
+                    db_cur.close()
+                    db_conn.close()
+                    logs.append("⚠️ Статус VM обновлён на 'postgres_pending'")
+                    print("⚠️ Статус VM обновлён на 'postgres_pending'")
+                except Exception as e:
+                    logs.append(f"⚠️ Не удалось обновить статус VM: {str(e)}")
+                    print(f"⚠️ Не удалось обновить статус VM: {str(e)}")
         
         logs.append("")
         logs.append("=" * 60)
@@ -763,6 +850,7 @@ runcmd:
                 'success': True,
                 'logs': logs,
                 'vm_id': yandex_vm_id,
+                'vm_db_id': vm_db_id if 'vm_db_id' in locals() else None,
                 'ip_address': ip_address,
                 'database_url': database_url,
                 'db_name': db_name,

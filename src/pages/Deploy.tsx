@@ -34,6 +34,7 @@ interface DeployConfig {
   domain: string;
   github_repo: string;
   vm_instance_id: number | null;
+  database_url?: string | null;
   vm_ip?: string;
   created_at: string;
   updated_at: string;
@@ -45,12 +46,12 @@ export default function Deploy() {
   const [configs, setConfigs] = useState<DeployConfig[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isDeploying, setIsDeploying] = useState<string | null>(null);
-  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "", github_token: "" });
+  const [newConfig, setNewConfig] = useState({ name: "", domain: "", repo: "", github_token: "", database_url: "" });
   const [showNewConfigForm, setShowNewConfigForm] = useState(false);
   const [isCreatingVM, setIsCreatingVM] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [editingConfig, setEditingConfig] = useState<string | null>(null);
-  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0, github_token: "" });
+  const [editConfig, setEditConfig] = useState({ name: "", domain: "", repo: "", vmId: 0, github_token: "", database_url: "" });
   const [selectedVmId, setSelectedVmId] = useState<number | null>(null);
   const [isCreateVmDialogOpen, setIsCreateVmDialogOpen] = useState(false);
   const [newVmName, setNewVmName] = useState("");
@@ -331,7 +332,8 @@ export default function Deploy() {
           name: newConfig.name,
           domain: newConfig.domain,
           github_repo: newConfig.repo,
-          vm_instance_id: vmId
+          vm_instance_id: vmId,
+          database_url: newConfig.database_url || null
         })
       });
 
@@ -349,7 +351,7 @@ export default function Deploy() {
       if (newConfig.github_token) {
         try { localStorage.setItem(`deploy_github_token_${newConfig.name}`, newConfig.github_token); } catch {}
       }
-      setNewConfig({ name: '', domain: '', repo: '', github_token: '' });
+      setNewConfig({ name: '', domain: '', repo: '', github_token: '', database_url: '' });
       setSelectedVmId(null);
       setShowNewConfigForm(false);
       loadConfigs();
@@ -401,7 +403,8 @@ export default function Deploy() {
           name: editConfig.name,
           domain: editConfig.domain,
           github_repo: editConfig.repo,
-          vm_instance_id: editConfig.vmId
+          vm_instance_id: editConfig.vmId,
+          database_url: editConfig.database_url || null
         })
       });
 
@@ -439,7 +442,8 @@ export default function Deploy() {
       domain: config.domain,
       repo: config.github_repo,
       vmId: config.vm_instance_id || 0,
-      github_token: token
+      github_token: token,
+      database_url: config.database_url || ''
     });
   };
 
@@ -734,7 +738,11 @@ export default function Deploy() {
       const resp = await fetch(MIGRATE_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ github_repo: config.github_repo, github_token: token })
+        body: JSON.stringify({ 
+          github_repo: config.github_repo, 
+          github_token: token,
+          config_name: config.name  // Передаём config_name для получения database_url из конфига
+        })
       });
 
       const data = await resp.json().catch(() => ({}));
@@ -1208,6 +1216,18 @@ export default function Deploy() {
                       ))}
                     </select>
                   </div>
+                  <div>
+                    <Label className="text-slate-300">База данных (DATABASE_URL)</Label>
+                    <Input
+                      value={newConfig.database_url}
+                      onChange={(e) => setNewConfig({...newConfig, database_url: e.target.value})}
+                      placeholder="postgresql://user:pass@host:5432/db (опционально)"
+                      className="bg-slate-800 border-slate-700 text-white"
+                    />
+                    <p className="text-xs text-slate-400 mt-1">
+                      💡 Если не указано, миграции будут применяться к БД из переменных окружения функции migrate. Можно указать URL БД из созданной VM с PostgreSQL.
+                    </p>
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <Button onClick={handleCreateConfig} className="bg-green-600 hover:bg-green-700">
@@ -1282,6 +1302,18 @@ export default function Deploy() {
                               </option>
                             ))}
                           </select>
+                        </div>
+                        <div>
+                          <Label className="text-slate-300">База данных (DATABASE_URL)</Label>
+                          <Input
+                            value={editConfig.database_url}
+                            onChange={(e) => setEditConfig({...editConfig, database_url: e.target.value})}
+                            placeholder="postgresql://user:pass@host:5432/db (опционально)"
+                            className="bg-slate-800 border-slate-700 text-white"
+                          />
+                          <p className="text-xs text-slate-400 mt-1">
+                            💡 Если не указано, миграции будут применяться к БД из переменных окружения функции migrate. Можно указать URL БД из созданной VM с PostgreSQL.
+                          </p>
                         </div>
                         <div className="flex flex-wrap gap-2">
                           <Button onClick={() => handleEditConfig(config.name)} className="bg-green-600 hover:bg-green-700">

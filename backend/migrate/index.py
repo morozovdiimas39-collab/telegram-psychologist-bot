@@ -105,12 +105,41 @@ def handler(event: dict, context) -> dict:
                 'isBase64Encoded': False
             }
         
-        database_url = os.environ.get('DATABASE_URL')
+        # Проверяем, есть ли config_name для получения database_url из конфига
+        config_name = body.get('config_name')
+        database_url = None
+        
+        if config_name:
+            # Получаем database_url из конфига
+            dsn = os.environ.get('DATABASE_URL')
+            if dsn:
+                try:
+                    schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
+                    conn_config = psycopg2.connect(dsn)
+                    cur_config = conn_config.cursor(cursor_factory=RealDictCursor)
+                    cur_config.execute(
+                        f"SELECT database_url FROM {schema}.deploy_configs WHERE name = %s",
+                        (config_name,)
+                    )
+                    config = cur_config.fetchone()
+                    cur_config.close()
+                    conn_config.close()
+                    
+                    if config and config.get('database_url') and config['database_url'].strip():
+                        database_url = config['database_url'].strip()
+                except Exception as e:
+                    # Если не удалось получить из конфига, используем fallback
+                    pass
+        
+        # Fallback на DATABASE_URL из переменных окружения
+        if not database_url:
+            database_url = os.environ.get('DATABASE_URL')
+        
         if not database_url:
             return {
                 'statusCode': 500,
                 'headers': {'Content-Type': 'application/json', **CORS_HEADERS},
-                'body': json.dumps({'error': 'DATABASE_URL не настроен'}),
+                'body': json.dumps({'error': 'DATABASE_URL не настроен (ни в конфиге, ни в переменных окружения)'}),
                 'isBase64Encoded': False
             }
         

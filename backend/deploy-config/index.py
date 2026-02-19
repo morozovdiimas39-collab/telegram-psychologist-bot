@@ -34,7 +34,7 @@ def handler(event: dict, context) -> dict:
             
             if name:
                 cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_instance_id, created_at, updated_at FROM {schema}.deploy_configs WHERE name = %s",
+                    f"SELECT id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at FROM {schema}.deploy_configs WHERE name = %s",
                     (name,)
                 )
                 config = cur.fetchone()
@@ -55,7 +55,7 @@ def handler(event: dict, context) -> dict:
                 }
             else:
                 cur.execute(
-                    f"SELECT id, name, domain, github_repo, vm_instance_id, created_at, updated_at FROM {schema}.deploy_configs ORDER BY created_at DESC"
+                    f"SELECT id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at FROM {schema}.deploy_configs ORDER BY created_at DESC"
                 )
                 configs = cur.fetchall()
                 
@@ -84,15 +84,16 @@ def handler(event: dict, context) -> dict:
             cur.execute(
                 f"""
                 INSERT INTO {schema}.deploy_configs 
-                (name, domain, github_repo, vm_instance_id, vm_ip, vm_user, vm_ssh_key)
-                VALUES (%s, %s, %s, %s, '0.0.0.0', 'ubuntu', 'placeholder')
-                RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
+                (name, domain, github_repo, vm_instance_id, database_url)
+                VALUES (%s, %s, %s, %s, %s)
+                RETURNING id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at
                 """,
                 (
                     body['name'],
                     body['domain'],
                     body['github_repo'],
-                    body['vm_instance_id']
+                    body['vm_instance_id'],
+                    body.get('database_url')  # Опционально
                 )
             )
             
@@ -128,7 +129,7 @@ def handler(event: dict, context) -> dict:
                 updates.append("name = %s")
                 params.append(new_name)
             
-            for field in ['domain', 'github_repo', 'vm_instance_id']:
+            for field in ['domain', 'github_repo', 'vm_instance_id', 'database_url']:
                 if field in body:
                     updates.append(f"{field} = %s")
                     params.append(body[field])
@@ -149,7 +150,7 @@ def handler(event: dict, context) -> dict:
                 UPDATE {schema}.deploy_configs 
                 SET {', '.join(updates)}
                 WHERE name = %s
-                RETURNING id, name, domain, github_repo, vm_instance_id, created_at, updated_at
+                RETURNING id, name, domain, github_repo, vm_instance_id, database_url, created_at, updated_at
                 """,
                 params
             )
