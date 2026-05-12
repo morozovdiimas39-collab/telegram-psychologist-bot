@@ -82,8 +82,9 @@ runcmd:
     cat > /opt/deploy-webhook.py <<'PYEOF'
     #!/usr/bin/env python3
     from flask import Flask, request, jsonify
-    import subprocess
+    import json
     import os
+    import subprocess
     
     app = Flask(__name__)
     

@@ -16,6 +16,7 @@ export const API_ENDPOINTS = {
   vmList: func2url['vm-list'],
   vmSshKey: func2url['vm-ssh-key'] || '', // Будет добавлено после деплоя функции
   setupDatabase: func2url['setup-database'] || '', // Будет добавлено после деплоя функции
+  projectApi: (func2url as Record<string, string>)['project-api'] || '',
 };
 
 export type ApiEndpoint = keyof typeof API_ENDPOINTS;

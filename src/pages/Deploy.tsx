@@ -140,10 +140,17 @@ export default function Deploy() {
   const handleDeploy = async (configName: string) => {
     setIsDeploying(configName);
     try {
+      let token = "";
+      try {
+        token = localStorage.getItem(`deploy_github_token_${configName}`) || "";
+      } catch {}
       const resp = await fetch(API_ENDPOINTS.deployLong, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ config_name: configName })
+        body: JSON.stringify({
+          config_name: configName,
+          ...(token.trim() ? { github_token: token.trim() } : {}),
+        })
       });
 
       const data = await resp.json();

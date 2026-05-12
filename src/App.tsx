@@ -13,6 +13,7 @@ import GeminiIDE from "./pages/GeminiIDE";
 import QuizDashboard from "./pages/QuizDashboard";
 import QuizBuilder from "./pages/QuizBuilder";
 import QuizPublic from "./pages/QuizPublic";
+import ProjectDashboard from "./pages/ProjectDashboard";
 import NotFound from "./pages/NotFound";
 
 const queryClient = new QueryClient();
@@ -33,6 +34,7 @@ const App = () => (
           <Route path="/quiz" element={<QuizDashboard />} />
           <Route path="/quiz-builder" element={<QuizBuilder />} />
           <Route path="/quiz/:slug" element={<QuizPublic />} />
+          <Route path="/projects" element={<ProjectDashboard />} />
           {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
           <Route path="*" element={<NotFound />} />
         </Routes>

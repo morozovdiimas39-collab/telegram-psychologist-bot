@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import requests
@@ -83,7 +84,16 @@ def handler(event: dict, context) -> dict:
         
         vm_ip = config['ip_address']
         domain = config['domain']
-        github_repo = config['github_repo']
+        github_repo = (config['github_repo'] or '').strip().rstrip('/').rstrip('.git')
+        project_name = config_name  # имя конфига = имя проекта на VM (/opt/{project_name})
+        
+        # Webhook ожидает: github_url, project_name, domain, secrets (deploy-project.py)
+        if github_repo.startswith('http://') or github_repo.startswith('https://'):
+            match = re.search(r'github\.com[/:]([^/]+/[^/]+?)(?:\.git)?/?$', github_repo)
+            repo_part = match.group(1) if match else github_repo
+        else:
+            repo_part = github_repo
+        github_url = f"https://{github_token}@github.com/{repo_part}.git" if github_token else f"https://github.com/{repo_part}.git"
         
         logs.append(f"🖥️  Сервер: {vm_ip}")
         logs.append("")
@@ -96,9 +106,10 @@ def handler(event: dict, context) -> dict:
             deploy_resp = requests.post(
                 webhook_url,
                 json={
+                    'github_url': github_url,
+                    'project_name': project_name,
                     'domain': domain,
-                    'repo': github_repo,
-                    'github_token': github_token or ''
+                    'secrets': []
                 },
                 timeout=5
             )

@@ -60,13 +60,13 @@ const Index = () => {
               Работаю на результат — вы платите только за реальные заявки и продажи.
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Button size="lg" className="text-lg h-14 px-8">
-                <Icon name="MessageCircle" className="mr-2 h-5 w-5" />
-                Обсудить проект
+              <Button size="lg" className="text-lg h-14 px-8" onClick={() => window.location.href = "/projects"}>
+                <Icon name="LayoutDashboard" className="mr-2 h-5 w-5" />
+                Панель проектов (Новое)
               </Button>
-              <Button size="lg" variant="outline" className="text-lg h-14 px-8">
-                <Icon name="FileText" className="mr-2 h-5 w-5" />
-                Смотреть кейсы
+              <Button size="lg" variant="outline" className="text-lg h-14 px-8" onClick={() => window.location.href = "/deploy"}>
+                <Icon name="Rocket" className="mr-2 h-5 w-5" />
+                Управление деплоем
               </Button>
             </div>
           </div>

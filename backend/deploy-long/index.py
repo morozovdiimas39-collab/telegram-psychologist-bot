@@ -6,6 +6,50 @@ import paramiko
 import time
 
 
+def _domain_ascii(domain: str) -> str:
+    """Для IDN (кириллица и т.д.) возвращает punycode для certbot/nginx."""
+    try:
+        return domain.encode("idna").decode("ascii")
+    except Exception:
+        return domain
+
+
+class _LogList(list):
+    def append(self, x):
+        super().append(x)
+        print(x, flush=True)
+
+
+def _ssh_run(ssh, cmd: str, timeout: int = 15) -> str:
+    try:
+        stdin, stdout, stderr = ssh.exec_command(cmd, timeout=timeout)
+        stdout.channel.recv_exit_status()
+    except Exception:
+        pass
+    out = stdout.read().decode("utf-8", errors="replace") if stdout else ""
+    err = stderr.read().decode("utf-8", errors="replace") if stderr else ""
+    return (out + err).strip()
+
+
+def _prepare_certbot_idn_deploy_hook(ssh, domain: str, certbot_domain: str, nginx_site_name: str) -> None:
+    """Подготовить certbot --deploy-hook: скрипт на сервере после выдачи серта подставит unicode в server_name (документация certbot)."""
+    idn_line = f"{domain} {certbot_domain}"
+    puny_sed = certbot_domain.replace(".", "\\.")
+    hook_sh = f'''#!/bin/bash
+export LANG=en_US.UTF-8
+LINE=$(cat /tmp/nginx_idn_line.txt)
+sed -i "s|server_name {puny_sed};|server_name $LINE;|g" /etc/nginx/sites-available/{nginx_site_name}
+nginx -t && systemctl reload nginx
+'''
+    sftp = ssh.open_sftp()
+    with sftp.file("/tmp/nginx_idn_line.txt", "wb") as f:
+        f.write(idn_line.encode("utf-8"))
+    with sftp.file("/tmp/nginx_idn_hook.sh", "wb") as f:
+        f.write(hook_sh.encode("utf-8"))
+    sftp.close()
+    _ssh_run(ssh, "chmod +x /tmp/nginx_idn_hook.sh", timeout=5)
+
+
 def handler(event: dict, context) -> dict:
     """Деплой проекта через SSH - для Яндекс Облака с увеличенным таймаутом"""
     method = event.get('httpMethod', 'POST')
@@ -41,7 +85,7 @@ def handler(event: dict, context) -> dict:
         
         dsn = os.environ['DATABASE_URL']
         schema = os.environ.get('MAIN_DB_SCHEMA', 'public')
-        github_token = os.environ.get('GITHUB_TOKEN', '')
+        github_token = (body.get('github_token') or os.environ.get('GITHUB_TOKEN') or '').strip()
         
         conn = psycopg2.connect(dsn)
         cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -68,11 +112,11 @@ def handler(event: dict, context) -> dict:
                 'isBase64Encoded': False
             }
         
-        logs = [
+        logs = _LogList([
             f"🚀 Деплой: {config['domain']}",
             f"📦 Репо: {config['github_repo']}",
             ""
-        ]
+        ])
         
         if not config['vm_instance_id'] or not config['ip_address']:
             logs.append("❌ VM не привязана к конфигу")
@@ -131,11 +175,23 @@ def handler(event: dict, context) -> dict:
         logs.append("✅ SSH подключение установлено")
         logs.append("")
         
-        # Режим "только SSL" — выпускаем сертификат без деплоя
+        domain_ascii = _domain_ascii(domain)
+        certbot_domain = domain_ascii if domain_ascii != domain else domain
+        server_names = f"{domain} {certbot_domain}" if certbot_domain != domain else domain
+        domain_safe = domain.replace('.', '_').replace('*', '_')
+        nginx_site_name = certbot_domain.replace('.', '_') if certbot_domain != domain else domain_safe
+        dir_safe = nginx_site_name if certbot_domain != domain else domain_safe
+
         if action == 'setup_ssl':
             logs.append("🔒 Режим: только установка SSL")
             logs.append("")
-            # Устанавливаем certbot если нет
+            nginx_t = _ssh_run(ssh, "sudo nginx -t 2>&1")
+            if "conflicting server name" in nginx_t.lower():
+                logs.append("⚠️ nginx: conflicting server name — удали дубликат конфига из sites-enabled.")
+            for line in nginx_t.split("\n"):
+                if "warn" in line.lower() or "error" in line.lower() or "conflicting" in line.lower() or "successful" in line.lower():
+                    logs.append(f"   {line.strip()}")
+            logs.append("")
             stdin, stdout, stderr = ssh.exec_command("which certbot 2>/dev/null || echo ''")
             certbot_path = stdout.read().decode('utf-8').strip()
             if not certbot_path:
@@ -144,14 +200,21 @@ def handler(event: dict, context) -> dict:
                 stdout.channel.recv_exit_status()
                 logs.append("✅ Certbot установлен")
             logs.append("🔒 Запускаю certbot...")
-            certbot_cmd = f"sudo certbot --nginx -d {domain} --non-interactive --agree-tos --email admin@{domain} 2>&1"
+            if certbot_domain != domain:
+                _prepare_certbot_idn_deploy_hook(ssh, domain, certbot_domain, nginx_site_name)
+            certbot_cmd = f"sudo certbot --nginx -d {certbot_domain} --non-interactive --agree-tos --email admin@{certbot_domain}"
+            if certbot_domain != domain:
+                certbot_cmd += " --deploy-hook '/tmp/nginx_idn_hook.sh'"
+            certbot_cmd += " 2>&1"
             stdin, stdout, stderr = ssh.exec_command(certbot_cmd, timeout=120)
             certbot_out = stdout.read().decode('utf-8')
-            ssh.close()
             logs.append("")
             if 'Successfully received certificate' in certbot_out or 'Certificate not yet due for renewal' in certbot_out:
                 logs.append("✅ SSL сертификат установлен!")
                 logs.append(f"   Сайт: https://{domain}")
+                if certbot_domain != domain:
+                    _ssh_run(ssh, "sudo /tmp/nginx_idn_hook.sh", timeout=10)
+                    _ssh_run(ssh, "sudo nginx -t 2>&1 && sudo systemctl reload nginx 2>&1", timeout=10)
             else:
                 logs.append("📋 Вывод certbot:")
                 for line in certbot_out.strip().split('\n')[-15:]:
@@ -159,6 +222,12 @@ def handler(event: dict, context) -> dict:
                 if 'could not resolve' in certbot_out.lower() or 'dns' in certbot_out.lower():
                     logs.append("")
                     logs.append("⚠️ Настрой DNS A-запись: " + domain + " → " + vm_ip)
+                if certbot_domain != domain:
+                    logs.append("")
+                    logs.append("💡 Если SSL не появился — на сервере по SSH выполни:")
+                    logs.append(f"   sudo certbot --nginx -d {certbot_domain} --non-interactive --agree-tos -m admin@{certbot_domain}")
+                    logs.append(f"   sudo nginx -t && sudo systemctl reload nginx")
+            ssh.close()
             return {
                 'statusCode': 200,
                 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
@@ -166,7 +235,7 @@ def handler(event: dict, context) -> dict:
                 'isBase64Encoded': False
             }
         
-        project_dir = f"/var/www/{domain}"
+        project_dir = f"/var/www/{dir_safe}"
         
         # Проверяем и устанавливаем git если нужно
         logs.append("🔍 Проверяю git...")
@@ -211,169 +280,285 @@ def handler(event: dict, context) -> dict:
         clone_url = f"https://{github_token}@github.com/{github_repo}.git" if github_token else f"https://github.com/{github_repo}.git"
         logs.append(f"   Репозиторий: {github_repo}")
         
-        commands = [
-            f"sudo rm -rf {project_dir}",
-            f"sudo mkdir -p {project_dir}",
-            f"sudo chown -R {ssh_user}:{ssh_user} {project_dir}",
-            f"git clone {clone_url} {project_dir}",
+        # Чистим старый мусор деплоев до clone (чтобы не упираться в No space left on device).
+        cleanup_cmd = (
+            "sudo find /var/www -maxdepth 1 -type d "
+            "\\( -name '*.new_*' -o -name '*.old_*' \\) "
+            "-mtime +1 -print -exec rm -rf {} + 2>/dev/null || true"
+        )
+        _ssh_run(ssh, cleanup_cmd, timeout=20)
+        _ssh_run(ssh, "sudo journalctl --vacuum-time=7d >/dev/null 2>&1 || true", timeout=20)
+        _ssh_run(ssh, "sudo apt-get clean >/dev/null 2>&1 || true", timeout=20)
+
+        prep_commands = [
+            f"sudo systemctl stop next_{dir_safe}.service 2>/dev/null || true",
+            f"sudo rm -rf '{project_dir}'",
+            f"sudo mkdir -p '{project_dir}'",
+            f"sudo chown -R {ssh_user}:{ssh_user} '{project_dir}'",
         ]
-        
-        for cmd in commands:
+        for cmd in prep_commands:
             stdin, stdout, stderr = ssh.exec_command(cmd, timeout=30)
             exit_code = stdout.channel.recv_exit_status()
             if exit_code != 0:
                 error = stderr.read().decode('utf-8')
-                logs.append(f"❌ Ошибка: {cmd}")
+                logs.append(f"❌ Ошибка: {cmd[:80]}...")
                 logs.append(f"   {error}")
                 ssh.close()
-                return {
-                    'statusCode': 500,
-                    'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-                    'body': json.dumps({'error': error, 'logs': logs}),
-                    'isBase64Encoded': False
-                }
+                return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': error, 'logs': logs}), 'isBase64Encoded': False}
+
+        # Пробуем clone; при нехватке места делаем расширенную очистку и повторяем один раз.
+        clone_cmd = f"git clone {clone_url} '{project_dir}'"
+        stdin, stdout, stderr = ssh.exec_command(clone_cmd, timeout=90)
+        clone_exit = stdout.channel.recv_exit_status()
+        if clone_exit != 0:
+            clone_err = stderr.read().decode('utf-8')
+            if "No space left on device" in clone_err:
+                logs.append("⚠️ Недостаточно места на диске. Чищу /var/www и повторяю clone...")
+                _ssh_run(ssh, "sudo find /var/www -maxdepth 1 -type d \\( -name '*.new_*' -o -name '*.old_*' \\) -print -exec rm -rf {} + 2>/dev/null || true", timeout=30)
+                _ssh_run(ssh, "sudo journalctl --vacuum-size=200M >/dev/null 2>&1 || true", timeout=20)
+                _ssh_run(ssh, "sudo rm -rf /tmp/* 2>/dev/null || true", timeout=20)
+                stdin, stdout, stderr = ssh.exec_command(clone_cmd, timeout=90)
+                clone_exit = stdout.channel.recv_exit_status()
+                if clone_exit != 0:
+                    clone_err = stderr.read().decode('utf-8')
+            if clone_exit != 0:
+                logs.append(f"❌ Ошибка: {clone_cmd[:80]}...")
+                logs.append(f"   {clone_err}")
+                ssh.close()
+                return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': clone_err, 'logs': logs}), 'isBase64Encoded': False}
         
         logs.append("✅ Репозиторий склонирован")
         logs.append("")
         
-        # Создаём скрипт деплоя на сервере (запустим в фоне)
+        log_path = f"/tmp/deploy_{domain}.log"
+        mode_file = f"/tmp/deploy_mode_{dir_safe}"
+        next_port = 3000 + (sum(ord(c) for c in dir_safe) % 500)
+        # Если в start-скрипте есть явный порт (-p/--port), используем его.
+        detect_port_cmd = f"""python3 - <<'PY'
+import json, re
+try:
+    p = "{project_dir}/package.json"
+    with open(p, "r", encoding="utf-8") as f:
+        s = (((json.load(f) or {{}}).get("scripts") or {{}}).get("start") or "")
+    m = re.search(r"(?:--port|-p)\\s+(\\d{{2,5}})", s)
+    print(m.group(1) if m else "")
+except Exception:
+    print("")
+PY"""
+        stdin, stdout, stderr = ssh.exec_command(detect_port_cmd, timeout=10)
+        explicit_port = (stdout.read().decode("utf-8").strip() or "")
+        if explicit_port.isdigit():
+            p = int(explicit_port)
+            if 1 <= p <= 65535:
+                next_port = p
+        
         deploy_script = f"""#!/bin/bash
 set -e
 cd {project_dir}
-echo "📦 npm install..." >> /tmp/deploy_{domain}.log
-npm install >> /tmp/deploy_{domain}.log 2>&1
-echo "✅ Зависимости установлены" >> /tmp/deploy_{domain}.log
-echo "🔨 npm run build..." >> /tmp/deploy_{domain}.log  
-npm run build >> /tmp/deploy_{domain}.log 2>&1
-echo "✅ Проект собран" >> /tmp/deploy_{domain}.log
-echo "📋 Копирую файлы в nginx..." >> /tmp/deploy_{domain}.log
-sudo mkdir -p /var/www/{domain}/html
-sudo cp -r {project_dir}/dist/* /var/www/{domain}/html/
-sudo chown -R www-data:www-data /var/www/{domain}/html
-echo "✅ Файлы скопированы" >> /tmp/deploy_{domain}.log
-echo "✅ Деплой завершён $(date)" >> /tmp/deploy_{domain}.log
+LOG={log_path}
+DOMAIN_SAFE="{dir_safe}"
+: > "$LOG"
+DEPLOY_MODE="static"
+RAM_MB=$(free -m | awk '/^Mem:/{{print $2}}')
+SWAP_MB=$(free -m | awk '/^Swap:/{{print $2}}')
+if [ "$RAM_MB" -lt 2048 ] 2>/dev/null && [ "$SWAP_MB" -lt 1500 ] 2>/dev/null; then
+  echo "Мало RAM, создаю swap..." >> "$LOG"
+  sudo fallocate -l 2G /swapfile 2>/dev/null || true
+  [ -f /swapfile ] && sudo chmod 600 /swapfile && sudo mkswap /swapfile 2>/dev/null && sudo swapon /swapfile 2>/dev/null || true
+fi
+if [ -f ~/.nvm/nvm.sh ]; then . ~/.nvm/nvm.sh; nvm use 20 2>/dev/null || nvm use 18 2>/dev/null || true; fi
+echo "Node: $(node -v 2>/dev/null)" >> "$LOG"
+npm install >> "$LOG" 2>&1
+echo "✅ Зависимости установлены" >> "$LOG"
+OUT_DIR=""
+if grep -q '"nuxt"' package.json 2>/dev/null || [ -f nuxt.config.ts ] || [ -f nuxt.config.js ]; then
+  BUILD_CMD="npm run generate || npx nuxt generate"
+  OUT_DIR=".output/public"
+elif grep -q '"next"' package.json 2>/dev/null; then
+  echo "🔨 Next.js build..." >> "$LOG"
+  npm run build >> "$LOG" 2>&1
+  if [ -d out ]; then
+    sudo mkdir -p /var/www/{dir_safe}/html
+    sudo cp -rT {project_dir}/out /var/www/{dir_safe}/html
+  elif [ -d dist ]; then
+    sudo mkdir -p /var/www/{dir_safe}/html
+    sudo cp -rT {project_dir}/dist /var/www/{dir_safe}/html
+  else
+    DEPLOY_MODE="next"
+    printf '%s\\n' '#!/bin/bash' 'cd {project_dir}' '[ -f ~/.nvm/nvm.sh ] && . ~/.nvm/nvm.sh' 'export PORT={next_port}' 'exec npm run start' > {project_dir}/start.sh
+    chmod +x {project_dir}/start.sh
+    printf '%s\\n' '[Unit]' 'Description=Next.js {domain}' 'After=network.target' '[Service]' 'Type=simple' 'User={ssh_user}' 'WorkingDirectory={project_dir}' 'Environment=PORT={next_port}' 'ExecStart={project_dir}/start.sh' 'Restart=always' '[Install]' 'WantedBy=multi-user.target' | sudo tee /etc/systemd/system/next_$DOMAIN_SAFE.service > /dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl enable next_$DOMAIN_SAFE.service 2>/dev/null || true
+    sudo systemctl restart next_$DOMAIN_SAFE.service
+  fi
+else
+  BUILD_CMD="npm run build"
+  OUT_DIR="dist"
+fi
+if [ -n "$OUT_DIR" ]; then
+  eval $BUILD_CMD >> "$LOG" 2>&1
+  sudo mkdir -p /var/www/{dir_safe}/html
+  sudo cp -rT {project_dir}/$OUT_DIR /var/www/{dir_safe}/html
+fi
+if [ "$DEPLOY_MODE" = "static" ]; then
+  sudo chown -R www-data:www-data /var/www/{dir_safe}/html
+fi
+echo "$DEPLOY_MODE" > {mode_file}
+echo "✅ Деплой завершён $(date)" >> "$LOG"
 """
         
-        # Загружаем скрипт на сервер через SFTP
         sftp = ssh.open_sftp()
         script_path = f"/tmp/deploy_{domain.replace('.', '_')}.sh"
         with sftp.file(script_path, 'w') as f:
             f.write(deploy_script)
         sftp.close()
-        
-        # Делаем скрипт исполняемым
         ssh.exec_command(f"chmod +x {script_path}")
         
-        # Запускаем в фоне (nohup)
-        logs.append("🚀 Запускаю npm install + build в фоновом режиме...")
-        ssh.exec_command(f"nohup bash {script_path} > /dev/null 2>&1 &")
-        time.sleep(1)  # Даём секунду на старт
+        www_domain = f"/var/www/{dir_safe}"
+        stdin, stdout, stderr = ssh.exec_command(f"grep -q '\"next\"' {project_dir}/package.json 2>/dev/null && echo next || echo static")
+        is_next = (stdout.read().decode("utf-8").strip() or "static") == "next"
+        stdin, stdout, stderr = ssh.exec_command(f"sudo mkdir -p {www_domain} && sudo chmod 755 {www_domain}")
+        stdout.channel.recv_exit_status()
         
-        logs.append("✅ Деплой запущен!")
-        logs.append(f"📝 Логи: tail -f /tmp/deploy_{domain}.log")
-        logs.append("")
-        logs.append("⏳ Сборка займёт 2-3 минуты в фоне")
-        logs.append("")
-        
-        # Настраиваем nginx для поддержки нескольких доменов на одном сервере
-        logs.append("⚙️ Настраиваю nginx для домена...")
-        
-        # Экранируем домен для использования в имени файла
-        domain_safe = domain.replace('.', '_').replace('*', '_')
-        
-        nginx_config = f"""server {{
+        if is_next:
+            logs.append(f"📦 Next.js: сборка в фоне, порт {next_port} (ответ сразу).")
+            nginx_proxy = f"""server {{
     listen 80;
-    server_name {domain};
-    root /var/www/{domain}/html;
-    index index.html;
-    
-    # Логи для этого домена
-    access_log /var/log/nginx/{domain_safe}_access.log;
-    error_log /var/log/nginx/{domain_safe}_error.log;
-    
+    server_name {server_names};
+    access_log /var/log/nginx/{dir_safe}_access.log;
+    error_log /var/log/nginx/{dir_safe}_error.log;
     location / {{
-        try_files $uri $uri/ /index.html =404;
-    }}
-    
-    location ~* \\.(?:css|js|jpg|jpeg|gif|png|ico|svg|woff|woff2|ttf|eot)$ {{
-        expires 1y;
-        access_log off;
-        add_header Cache-Control "public, immutable";
+        proxy_pass http://127.0.0.1:{next_port};
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
     }}
 }}"""
+            tmp_nginx = f"/tmp/nginx_sites_{dir_safe}"
+            sftp = ssh.open_sftp()
+            with sftp.file(tmp_nginx, "wb") as f:
+                f.write(nginx_proxy.encode("utf-8"))
+            sftp.close()
+            stdin, stdout, stderr = ssh.exec_command(f"sudo mv {tmp_nginx} /etc/nginx/sites-available/{nginx_site_name}")
+            stdout.channel.recv_exit_status()
+            stdin, stdout, stderr = ssh.exec_command(f"sudo ln -sf /etc/nginx/sites-available/{nginx_site_name} /etc/nginx/sites-enabled/{nginx_site_name}")
+            stdout.channel.recv_exit_status()
+            if certbot_domain != domain:
+                logs.append("   Прописываю кириллический домен в nginx (deploy-hook после certbot)...")
+                _prepare_certbot_idn_deploy_hook(ssh, domain, certbot_domain, nginx_site_name)
+            certbot_cmd = f"sudo certbot --nginx -d {certbot_domain} --non-interactive --agree-tos --email admin@{certbot_domain}"
+            if certbot_domain != domain:
+                certbot_cmd += " --deploy-hook '/tmp/nginx_idn_hook.sh'"
+            certbot_cmd += " 2>&1 || true"
+            _ssh_run(ssh, certbot_cmd, timeout=120)
+            if certbot_domain != domain:
+                _ssh_run(ssh, "sudo /tmp/nginx_idn_hook.sh", timeout=10)
+            if certbot_domain != domain:
+                ssh.exec_command(f"sudo rm -f /etc/nginx/sites-enabled/{domain_safe}")
+                _ssh_run(ssh, f"for p in $(sudo grep -l '{certbot_domain}' /etc/nginx/sites-available/* 2>/dev/null); do s=$(basename \"$p\"); [ \"$s\" = '{nginx_site_name}' ] && continue; sudo rm -f \"/etc/nginx/sites-enabled/$s\"; done", timeout=10)
+                _ssh_run(ssh, f"for p in $(sudo grep -Fl -- '{domain}' /etc/nginx/sites-available/* 2>/dev/null); do s=$(basename \"$p\"); [ \"$s\" = '{nginx_site_name}' ] && continue; sudo rm -f \"/etc/nginx/sites-enabled/$s\"; done", timeout=10)
+            stdin, stdout, stderr = ssh.exec_command("sudo nginx -t 2>/dev/null && sudo systemctl reload nginx 2>/dev/null || true")
+            stdout.channel.recv_exit_status()
+            ssh.exec_command(f"nohup bash {script_path} >> {log_path} 2>&1 &")
+            time.sleep(1)
+            logs.append("✅ Деплой запущен. Сборка 2–4 мин в фоне — обнови сайт через пару минут.")
+            logs.append(f"   Открывай только по домену: https://{domain}  (не по IP)")
+            logs.append(f"   Лог на сервере: tail -f {log_path}")
+            ssh.close()
+            return {
+                'statusCode': 200,
+                'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
+                'body': json.dumps({'success': True, 'logs': logs, 'url': f"http://{domain}", 'ip_url': f"http://{vm_ip}"}),
+                'isBase64Encoded': False
+            }
         
-        # Создаём конфиг для этого домена
-        stdin, stdout, stderr = ssh.exec_command(f"echo '{nginx_config}' | sudo tee /etc/nginx/sites-available/{domain_safe}")
+        logs.append("📁 Готовлю каталог для сборки...")
+        build_timeout = 280
+        logs.append(f"🚀 Запускаю npm install + build (жду до {build_timeout} сек)...")
+        stdin, stdout, stderr = ssh.exec_command(f"bash {script_path}")
+        chan = stdout.channel
+        chan.settimeout(build_timeout)
+        try:
+            exit_status = chan.recv_exit_status()
+        except Exception as e:
+            logs.append(f"❌ Таймаут сборки ({build_timeout} сек) или обрыв: {e}")
+            stdin, stdout, stderr = ssh.exec_command(f"tail -80 {log_path} 2>/dev/null || true")
+            for line in (stdout.read().decode("utf-8", errors="replace") or "(лог пуст)").strip().split("\n"):
+                logs.append(f"   {line}")
+            ssh.close()
+            return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Build timeout', 'logs': logs}), 'isBase64Encoded': False}
+        if exit_status != 0:
+            logs.append("❌ Сборка завершилась с ошибкой.")
+            stdin, stdout, stderr = ssh.exec_command(f"tail -200 {log_path} 2>/dev/null || true")
+            for line in (stdout.read().decode("utf-8", errors="replace") or "(лог пуст)").strip().split("\n"):
+                logs.append(f"   {line}")
+            ssh.close()
+            return {'statusCode': 500, 'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'}, 'body': json.dumps({'error': 'Build failed', 'logs': logs}), 'isBase64Encoded': False}
+        logs.append("✅ Сборка завершена.")
+        stdin, stdout, stderr = ssh.exec_command(f"cat {mode_file} 2>/dev/null || echo static")
+        deploy_mode = (stdout.read().decode("utf-8").strip() or "static").lower()
+        logs.append("")
+        logs.append("⚙️ Настраиваю nginx...")
+        nginx_config = f"""server {{
+    listen 80;
+    server_name {server_names};
+    root /var/www/{dir_safe}/html;
+    index index.html;
+    access_log /var/log/nginx/{dir_safe}_access.log;
+    error_log /var/log/nginx/{dir_safe}_error.log;
+    location / {{ try_files $uri $uri/ /index.html; }}
+    location ~* \\.(?:css|js|jpg|jpeg|gif|png|ico|svg|woff|woff2|ttf|eot)$ {{ expires 1y; access_log off; add_header Cache-Control "public, immutable"; }}
+}}"""
+        tmp_nginx = f"/tmp/nginx_sites_{dir_safe}"
+        sftp = ssh.open_sftp()
+        with sftp.file(tmp_nginx, "wb") as f:
+            f.write(nginx_config.encode("utf-8"))
+        sftp.close()
+        stdin, stdout, stderr = ssh.exec_command(f"sudo mv {tmp_nginx} /etc/nginx/sites-available/{nginx_site_name}")
         stdout.channel.recv_exit_status()
-        
-        # Активируем конфиг (создаём симлинк)
-        stdin, stdout, stderr = ssh.exec_command(f"sudo ln -sf /etc/nginx/sites-available/{domain_safe} /etc/nginx/sites-enabled/{domain_safe}")
+        stdin, stdout, stderr = ssh.exec_command(f"sudo ln -sf /etc/nginx/sites-available/{nginx_site_name} /etc/nginx/sites-enabled/{nginx_site_name}")
         stdout.channel.recv_exit_status()
-        
-        # Проверяем конфигурацию nginx
+        if certbot_domain != domain:
+            ssh.exec_command(f"sudo rm -f /etc/nginx/sites-enabled/{domain_safe}")
+            _ssh_run(ssh, f"for p in $(sudo grep -l '{certbot_domain}' /etc/nginx/sites-available/* 2>/dev/null); do s=$(basename \"$p\"); [ \"$s\" = '{nginx_site_name}' ] && continue; sudo rm -f \"/etc/nginx/sites-enabled/$s\"; done", timeout=10)
+            _ssh_run(ssh, f"for p in $(sudo grep -Fl -- '{domain}' /etc/nginx/sites-available/* 2>/dev/null); do s=$(basename \"$p\"); [ \"$s\" = '{nginx_site_name}' ] && continue; sudo rm -f \"/etc/nginx/sites-enabled/$s\"; done", timeout=10)
         stdin, stdout, stderr = ssh.exec_command("sudo nginx -t")
-        exit_code = stdout.channel.recv_exit_status()
-        
-        if exit_code != 0:
-            error = stderr.read().decode('utf-8')
-            logs.append(f"❌ nginx config invalid: {error}")
-            logs.append("⚠️ Продолжаю деплой, но nginx не перезапущен")
+        if stdout.channel.recv_exit_status() != 0:
+            logs.append(f"❌ nginx -t: {stderr.read().decode('utf-8')}")
         else:
             stdin, stdout, stderr = ssh.exec_command("sudo systemctl reload nginx")
-            reload_exit = stdout.channel.recv_exit_status()
-            if reload_exit == 0:
-                logs.append(f"✅ nginx настроен для домена {domain}")
-                logs.append(f"   Конфиг: /etc/nginx/sites-available/{domain_safe}")
-            else:
-                logs.append("⚠️ Не удалось перезагрузить nginx, но конфиг создан")
-        
-        # Пробуем выпустить SSL для домена (если DNS уже настроен)
+            stdout.channel.recv_exit_status()
+            logs.append(f"✅ nginx настроен для {domain}")
         logs.append("")
-        logs.append("🔒 Запускаю certbot для SSL (если DNS настроен)...")
-        certbot_cmd = f"sudo certbot --nginx -d {domain} --non-interactive --agree-tos --email admin@{domain} 2>&1 || true"
+        logs.append("🔒 Certbot для SSL...")
+        if certbot_domain != domain:
+            _prepare_certbot_idn_deploy_hook(ssh, domain, certbot_domain, nginx_site_name)
+        certbot_cmd = f"sudo certbot --nginx -d {certbot_domain} --non-interactive --agree-tos --email admin@{certbot_domain}"
+        if certbot_domain != domain:
+            certbot_cmd += " --deploy-hook '/tmp/nginx_idn_hook.sh'"
+        certbot_cmd += " 2>&1 || true"
         stdin, stdout, stderr = ssh.exec_command(certbot_cmd)
         certbot_out = stdout.read().decode('utf-8')
         if 'Successfully received certificate' in certbot_out or 'Certificate not yet due for renewal' in certbot_out:
-            logs.append("✅ SSL сертификат настроен")
-        elif 'DNS' in certbot_out or 'resolution' in certbot_out.lower():
-            logs.append("⚠️ SSL: сначала настрой DNS A-запись, затем перезапусти деплой")
+            logs.append("✅ SSL настроен")
         else:
-            logs.append("⚠️ SSL: certbot не выполнен (настрой DNS и перезапусти деплой)")
-        
-        # Показываем список всех активных доменов на этом сервере
-        logs.append("")
-        logs.append("📋 Проверяю все домены на этом сервере...")
-        stdin, stdout, stderr = ssh.exec_command("ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | grep -v default || echo ''")
-        enabled_sites = stdout.read().decode('utf-8').strip()
-        if enabled_sites:
-            logs.append(f"   Активные домены: {enabled_sites.replace(chr(10), ', ')}")
-        else:
-            logs.append("   Активные домены не найдены")
-        
+            logs.append("⚠️ SSL: настрой DNS A-запись и перезапусти деплой")
+        if certbot_domain != domain:
+            _ssh_run(ssh, "sudo /tmp/nginx_idn_hook.sh", timeout=10)
+            _ssh_run(ssh, f"for f in /etc/nginx/sites-enabled/*; do bn=$(basename \"$f\"); [ \"$bn\" = 'default' ] && continue; [ \"$bn\" = '{nginx_site_name}' ] && continue; t=$(sudo readlink -f \"$f\" 2>/dev/null); [ -n \"$t\" ] && [ -f \"$t\" ] && sudo sed -i 's/default_server//g' \"$t\"; done", timeout=10)
+            _ssh_run(ssh, "sudo nginx -t 2>&1 && sudo systemctl reload nginx 2>&1", timeout=10)
+        if deploy_mode == "next":
+            _ssh_run(ssh, f"sudo systemctl restart next_{dir_safe}.service 2>&1", timeout=15)
         ssh.close()
-        
         logs.append("")
-        logs.append(f"🎉 Деплой завершён!")
-        logs.append(f"   Домен: {domain}")
-        logs.append(f"   Сайт: https://{domain} или http://{domain}")
-        logs.append(f"   По IP: http://{vm_ip}")
-        logs.append("")
-        logs.append("💡 Чтобы домен открывался вместо IP:")
-        logs.append(f"   1. В панели DNS (где купил домен) добавь A-запись:")
-        logs.append(f"      {domain} → {vm_ip}")
-        logs.append(f"      www.{domain} → {vm_ip} (если нужен www)")
-        logs.append(f"   2. Подожди 5–30 мин. propagation DNS")
-        logs.append(f"   3. Перезапусти деплой — SSL выпустится автоматически")
-        
+        logs.append(f"🎉 Деплой завершён! Домен: {domain}, Сайт: https://{domain}")
         return {
             'statusCode': 200,
             'headers': {'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*'},
-            'body': json.dumps({
-                'success': True,
-                'logs': logs,
-                'url': f"http://{domain}",
-                'ip_url': f"http://{vm_ip}"
-            }),
+            'body': json.dumps({'success': True, 'logs': logs, 'url': f"http://{domain}", 'ip_url': f"http://{vm_ip}"}),
             'isBase64Encoded': False
         }
         

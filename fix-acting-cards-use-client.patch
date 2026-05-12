@@ -1,0 +1,16 @@
+--- a/src/pages/ActingCardsPage.tsx
++++ b/src/pages/ActingCardsPage.tsx
+@@ -1,5 +1,6 @@
+-import { useState, useEffect } from "react";
++'use client';
++import { useState, useEffect } from "react";
+ import { Helmet } from "react-helmet";
+ import Header from "@/components/Header";
+ import Footer from "@/components/Footer";
+@@ -16,8 +17,6 @@ import BlogSection from "@/components/acting/BlogSection";
+ import ContactSection from "@/components/acting/ContactSection";
+ 
+-'use client';
+ import { useRouter } from "next/navigation";
+ 
+ export default function ActingCardsPage() {
